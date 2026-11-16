@@ -140,6 +140,44 @@
         "security": []
       }
     },
+    "/metrics": {
+      "get": {
+        "tags": [
+          "health"
+        ],
+        "summary": "Metrics counters",
+        "description": "Prometheus text format: HTTP requests, AI calls, exam starts and audit events of this API process. Super admin only (bearer token); not exposed to organizations.",
+        "operationId": "metrics_metrics_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "type": "string"
+                },
+                "example": "exam_starts_total 3"
+              }
+            }
+          },
+          "401": {
+            "description": "UNAUTHENTICATED"
+          },
+          "403": {
+            "description": "FORBIDDEN (not a super admin)"
+          }
+        },
+        "x-roles": [
+          "super_admin"
+        ],
+        "x-required-flag": null,
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ]
+      }
+    },
     "/api/v1/files/{token}": {
       "get": {
         "tags": [
@@ -706,7 +744,7 @@
         "operationId": "refresh_api_v1_auth_refresh_post",
         "parameters": [
           {
-            "name": "assessment-platform-api_refresh",
+            "name": "hr-assessment-platform_refresh",
             "in": "cookie",
             "required": false,
             "schema": {
@@ -719,7 +757,7 @@
                 }
               ],
               "description": "HttpOnly refresh token set by login; rotated on every use",
-              "title": "Assessment-Platform-Api Refresh"
+              "title": "Hr-Assessment-Platform Refresh"
             },
             "description": "HttpOnly refresh token set by login; rotated on every use"
           }
