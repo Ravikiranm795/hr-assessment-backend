@@ -1,7 +1,8 @@
 """Alembic environment.
 
 Migrations run synchronously through psycopg; an ``postgresql+asyncpg`` URL from the app
-settings is converted. ``sqlalchemy.url`` set on the config (tests) wins over settings.
+settings is converted. ``sqlalchemy.url`` set on the config (tests) wins over settings; otherwise ``DATABASE_URL_MIGRATIONS``
+(falls back to ``DATABASE_URL``).
 """
 
 from logging.config import fileConfig
@@ -24,7 +25,7 @@ def _url() -> str:
     if not url:
         from app.core.config import settings
 
-        url = settings.database_url
+        url = settings.database_url_migrations or settings.database_url
     return make_url(url).set(drivername="postgresql+psycopg").render_as_string(hide_password=False)
 
 

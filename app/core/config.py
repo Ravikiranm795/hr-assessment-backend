@@ -38,6 +38,9 @@ class Settings(BaseSettings):
     app_base_url: str = "http://localhost:3000"
 
     database_url: str = "postgresql+asyncpg://postgres:postgres@localhost:5432/hr_assessment"
+    # Alembic connection (schema owner able to create roles/extensions). Empty: use DATABASE_URL, so the
+    # runtime app can connect with a least-privilege login while migrations keep their own.
+    database_url_migrations: str = ""
     database_url_reports_ro: str = ""
     # "maintenance" role connection for audit partition DDL (job audit_partitions); else DATABASE_URL.
     database_url_maintenance: str = ""

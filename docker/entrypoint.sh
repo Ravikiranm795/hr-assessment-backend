@@ -15,7 +15,8 @@ import asyncio, os, sys, time
 
 import asyncpg
 
-dsn = os.environ["DATABASE_URL"].replace("+asyncpg", "", 1)
+# Migrations may use their own (schema owner) login; fall back to the runtime URL.
+dsn = (os.environ.get("DATABASE_URL_MIGRATIONS") or os.environ["DATABASE_URL"]).replace("+asyncpg", "", 1)
 deadline = time.monotonic() + int(os.environ.get("DB_WAIT_TIMEOUT_SEC", "60"))
 
 
