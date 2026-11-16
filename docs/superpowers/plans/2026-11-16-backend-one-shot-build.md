@@ -25,7 +25,7 @@ Every task's requirements include these.
 - Rate limits per spec 4.7. Signed snapshot URLs last 60 s. Exam save grace is 5 s. Minimum viewport is 900 px.
 - Candidate retention default 90 days, range 7-730. Max 3 assessment versions. AI generation minimum 10 questions. AI never receives candidate personal data, and report chat never receives rows.
 - Every endpoint declares `x-roles` and `x-required-flag` in OpenAPI. Phase 2 items (spec 1.4) are not built.
-- Tests: pytest per module (`pytest tests/mXX -q`), roughly 15-30 per module, mock AI provider only, separate test database. The full suite runs once at the end.
+- Tests (lean, token-saving policy): pytest per module (`pytest tests/mXX -q`), **8-12 tests per module** (not 15-30): 1 golden path, 1 table-driven permission matrix (parametrized, one test function), the named RF-n tests, and only the negatives the brief names. No per-field validation tests, no duplicated setup (shared fixtures in the module conftest, compact parametrization). Mock AI provider only, separate test database. The full suite runs once at the end. The Task 20 security suite is parametrized over routes, so it covers breadth cheaply instead of every module repeating it. Where a task below lists more test names than this, write the listed names as parametrized cases of fewer functions.
 - Agents write only inside their own module directories (`app/modules/mXX_*`, `tests/mXX_*`, `seed/mXX_*`). `core`, `migrations` and `docker` are frozen after Task 3.
 
 ## Review Focus

@@ -1,0 +1,52 @@
+{
+  "_comment": "Editable provider and model catalog (spec 7.1). Change ids here without touching code; the m04 AI settings module reads this file too. Light, cheap models are the defaults.",
+  "version": 1,
+  "verified_on": "2026-11-16",
+  "sources": [
+    "https://aistudio.google.com/docs/models",
+    "https://developers.openai.com/api/docs/models/gpt-5.4-mini",
+    "https://developers.openai.com/api/docs/changelog.md"
+  ],
+  "providers": {
+    "anthropic": {
+      "label": "Anthropic (Claude)",
+      "modes": ["api", "cli"],
+      "default_model": "claude-haiku-5-5",
+      "models": [
+        {"id": "claude-haiku-5-5", "label": "Claude Haiku 5.5 (light, default)"}
+      ],
+      "fields": {"api_key": "required", "base_url": "optional", "cli_command_key": "cli_only"},
+      "default_base_url": "https://api.anthropic.com"
+    },
+    "gemini": {
+      "label": "Google (Gemini)",
+      "modes": ["api"],
+      "default_model": "gemini-3.5-flash-lite",
+      "models": [
+        {"id": "gemini-3.5-flash-lite", "label": "Gemini 3.5 Flash-Lite (light, default)"},
+        {"id": "gemini-3.6-flash", "label": "Gemini 3.6 Flash"},
+        {"id": "gemini-3.1-flash-lite", "label": "Gemini 3.1 Flash-Lite"}
+      ],
+      "fields": {"api_key": "required", "base_url": "optional"},
+      "default_base_url": "https://generativelanguage.googleapis.com"
+    },
+    "openai": {
+      "label": "OpenAI",
+      "modes": ["api"],
+      "default_model": "gpt-5.4-mini",
+      "models": [
+        {"id": "gpt-5.4-mini", "label": "GPT-5.4 mini (light, default)"}
+      ],
+      "fields": {"api_key": "required", "base_url": "optional"},
+      "default_base_url": "https://api.openai.com/v1"
+    },
+    "openai_compatible": {
+      "label": "OpenAI-compatible (custom base URL)",
+      "modes": ["api"],
+      "default_model": null,
+      "models": [],
+      "fields": {"api_key": "optional", "base_url": "required"},
+      "default_base_url": null
+    }
+  }
+}
