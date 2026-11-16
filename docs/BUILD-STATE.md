@@ -35,4 +35,5 @@ See ledger: migration hardening (reports_ro column grants, RLS on password_histo
 - Decision to confirm: AI `base_url` (openai-compatible) is still not DNS-restricted in prod (self-hosted LLMs); SMTP is.
 - [x] Wave 1 gate fixes: reports_ro column grants (users, invites), RLS on password_history/refresh_tokens (child of users), ALTER ROLE charset check + log_statement none, all 118 operations under /api/v1, autouse engine fixture. Full suite: 587 passed. Dev DB must be recreated (baseline migration edited).
 - Handover notes: access tokens live <=15 min after logout; JWT single kid; uvicorn --proxy-headers; SMTP DNS re-resolve only at save/test (rebinding residual); export caps 50000 CSV / 2000 PDF rows.
-- Next: Wave 2: T11 M6 roles -> T12 M7 invites -> T13 M11 reports -> T14 M12 dashboard.
+- [x] T11 M6 roles (14 tests). Deviation: `hooks.on_role_close` hooks take `(ctx, session, role_id)` so M7's revoke is in the same transaction. `RoleService.get_open_linked_role(session, org_id, role_id) -> (OpenRole, version_id)`.
+- Next: T12 M7 invites -> T13 M11 reports -> T14 M12 dashboard -> T15 exam.
