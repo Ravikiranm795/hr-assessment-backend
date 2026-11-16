@@ -43,4 +43,5 @@ See ledger: migration hardening (reports_ro column grants, RLS on password_histo
 - Full suite: 641 passed, lint and name check clean (after T16).
 - [x] T17 jobs (10 tests): `app.jobs.JOBS`, scheduler (`python -m app.jobs.scheduler`), `run-job` / `list-jobs` CLI. Also the debounced (10 min) `serious_flag` notification in M8 ingest. Decisions: AI scoring `pending` for >15 min becomes `needs_manual` (no failure counter column); `audit_partitions` uses `DATABASE_URL_MAINTENANCE` (new setting, falls back to `DATABASE_URL`) because the partition functions are `maintenance`-only; run ONE worker. T19 must register its runner on `review.hooks.ai_scoring_hooks` and be imported by `retry_ai_scoring`/the worker.
 - Full suite: 651 passed (after T17).
-- Next: T13 M11 reports, T14 M12 dashboard, T18 gadgets, T19 AI scoring, T20 security suite, T21 e2e, T22 seed, T23 openapi, T24 handover.
+- [x] T14+T18 M12 dashboard, all 18 gadgets, layout, notifications (8 tests; combined because serial work needs no stubs). Gadget routes use flag `dashboard_gadgets`, notifications `dashboard`; a gadget the role may not use is 403 on the data route, unknown key 404.
+- Next: T19 AI scoring, T13 M11 reports, T20 security suite, T21 e2e, T22 seed, T23 openapi, T24 handover.
