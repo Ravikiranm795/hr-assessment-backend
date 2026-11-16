@@ -18,10 +18,11 @@ from app.core.config import settings
 from app.core.db import TenantContext, system_context, tenant_session
 from app.core.flags import FLAG_KEYS
 from app.core.roles import HR_USER, ORG_ADMIN, SUPER_ADMIN
-from app.core.security import hash_password
+from app.core.security import hash_password, password_policy_violations
 from app.db import HelpRequest, Invite, User
 from app.jobs import expire_invites
 from app.modules.m01_auth.cli import create_default_superadmin
+from app.modules.m01_auth.service import service as auth_service
 from app.modules.m02_platform.schemas import AdminIn, FlagsIn, OrgCreate
 from app.modules.m02_platform.service import PlatformService
 from app.modules.m03_team.schemas import UserCreate
@@ -50,10 +51,10 @@ from app.modules.m12_dashboard.schemas import LayoutIn
 from app.modules.m12_dashboard.service import DashboardService
 from seed import data
 from seed.candidate import Candidate
-from seed.wipe import wipe_demo
+from seed.wipe import DEMO_ORGS_SQL, DEMO_PARAMS, refuse_in_prod, wipe_demo
 
 log = logging.getLogger("seed.demo")
-_DEMO_ORGS = "SELECT id FROM organizations WHERE is_demo"
+_DEMO_ORGS = DEMO_ORGS_SQL
 
 
 def _in_demo_orgs(table: str) -> str:
@@ -61,7 +62,7 @@ def _in_demo_orgs(table: str) -> str:
 
 
 _TABLES_FOR_COUNTS = {
-    "organizations": "SELECT count(*) FROM organizations WHERE is_demo",
+    "organizations": f"SELECT count(*) FROM ({_DEMO_ORGS}) AS demo_orgs",
     "users": (
         f"SELECT count(*) FROM users WHERE org_id IN ({_DEMO_ORGS}) "
         "OR (org_id IS NULL AND email = :sa AND NOT is_default_super_admin)"
@@ -102,6 +103,7 @@ class _Org:
     id: UUID
     admin: TenantContext
     users: dict[str, TenantContext]  # account key -> context (admin included)
+    temps: dict[str, str]  # account key -> one-time temporary password from the real services
 
 
 def _answer_for(question: QuestionOut, right: bool) -> dict[str, Any]:
@@ -142,13 +144,14 @@ def _question_in(q: data.Q) -> QuestionIn:
 # --------------------------------------------------------------------------- phases
 
 
-async def _platform_admin(password_hash: str) -> TenantContext:
+async def _platform_admin() -> TenantContext:
     """The demo (daily) super admin. The break-glass admin comes from DEFAULT_SA_* when configured."""
     try:
         state = await create_default_superadmin()
         log.info("default super admin: %s", state)
     except typer.Exit:
         log.info("default super admin: not configured (DEFAULT_SA_* unset)")
+    password_hash = await asyncio.to_thread(hash_password, data.DEMO_PASSWORD)
     ctx = system_context("seed-demo")
     async with tenant_session(ctx) as session:
         user = User(
@@ -183,7 +186,7 @@ async def _create_org(
 ) -> _Org:
     platform = PlatformService()
     async with tenant_session(sa) as session:
-        org, admin_user, _temp = await platform.create_org(
+        org, admin_user, admin_temp = await platform.create_org(
             sa,
             session,
             OrgCreate(
@@ -198,24 +201,25 @@ async def _create_org(
         await platform.set_org_flags(sa, session, org_id, FlagsIn(flags=wanted, reason="Demo configuration"))
     admin_ctx = _staff_ctx(admin_id, org_id, ORG_ADMIN)
     users = {admin.key: admin_ctx}
+    temps = {admin.key: admin_temp}
     team = TeamService()
     for account in hr:
         async with tenant_session(admin_ctx) as session:
-            user, _temp = await team.create_user(
+            user, temp = await team.create_user(
                 admin_ctx, session, UserCreate(name=account.name, email=account.email)
             )
             users[account.key] = _staff_ctx(user.id, org_id, HR_USER)
-    return _Org(number, org_id, admin_ctx, users)
+            temps[account.key] = temp
+    return _Org(number, org_id, admin_ctx, users, temps)
 
 
-async def _set_known_passwords(org_ids: list[UUID], password_hash: str) -> None:
-    ctx = system_context("seed-demo")
-    async with tenant_session(ctx) as session:
-        await session.execute(
-            update(User)
-            .where(User.org_id.in_(org_ids), User.role.in_([ORG_ADMIN, HR_USER]))
-            .values(password_hash=password_hash, must_change_password=False)
-        )
+async def _set_known_passwords(orgs: list[_Org]) -> None:
+    """Replace each temporary password with the demo password through the real change-password service
+    (so the organization's password policy and history apply)."""
+    for org in orgs:
+        for key, ctx in org.users.items():
+            async with tenant_session(ctx) as session:
+                await auth_service.change_password(ctx, session, org.temps[key], data.DEMO_PASSWORD)
 
 
 async def _org1_settings(org: _Org) -> None:
@@ -539,23 +543,25 @@ async def demo_counts() -> dict[str, int]:
     out: dict[str, int] = {}
     async with tenant_session(ctx) as session:
         for name, sql in _TABLES_FOR_COUNTS.items():
-            params = {"sa": data.PLATFORM_ADMIN.email} if ":sa" in sql else {}
-            out[name] = int((await session.execute(text(sql), params)).scalar_one())
+            out[name] = int((await session.execute(text(sql), DEMO_PARAMS)).scalar_one())
     return out
 
 
 async def seed_demo() -> dict[str, Any]:
     """Create the demo set. Does nothing (``status: exists``) when demo data is already present."""
+    refuse_in_prod()
+    problems = password_policy_violations(data.DEMO_PASSWORD)
+    if problems:
+        raise ValueError(f"DEMO_PASSWORD does not meet the password policy: {', '.join(problems)}")
     counts = await demo_counts()
     if counts["organizations"]:
         return {"status": "exists", "counts": counts}
-    password_hash = await asyncio.to_thread(hash_password, data.DEMO_PASSWORD)
-    sa = await _platform_admin(password_hash)
+    sa = await _platform_admin()
     org1 = await _create_org(sa, 1, _org_name(1), data.ORG1_SLUG, data.ORG1_ADMIN, data.ORG1_HR, flags_off=())
     org2 = await _create_org(
         sa, 2, _org_name(2), data.ORG2_SLUG, data.ORG2_ADMIN, data.ORG2_HR, flags_off=data.ORG2_FLAGS_OFF
     )
-    await _set_known_passwords([org1.id, org2.id], password_hash)
+    await _set_known_passwords([org1, org2])
     orgs = {1: org1, 2: org2}
     await _org1_settings(org1)
     registry = await _assessments(orgs)
@@ -566,7 +572,8 @@ async def seed_demo() -> dict[str, Any]:
 
 
 async def reset_demo() -> dict[str, Any]:
-    """Wipe demo data (only ``is_demo`` organizations and the demo platform admin), then reseed."""
+    """Wipe demo data (only the reserved-slug demo organizations and the demo platform admin), then reseed."""
+    refuse_in_prod()
     wiped = await wipe_demo()
     result = await seed_demo()
     return {**result, "wiped": wiped}

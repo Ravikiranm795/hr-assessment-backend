@@ -2,6 +2,8 @@
 
 import asyncio
 import json
+from pathlib import Path
+from typing import Annotated
 
 import typer
 
@@ -26,11 +28,27 @@ def _require_secrets() -> None:
 
 def _refuse_in_prod() -> None:
     if settings.app_env == "prod":
-        typer.echo("Demo data is never created in a production environment (APP_ENV=prod).", err=True)
+        typer.echo(
+            "Demo data is never created in a production environment (APP_ENV=prod).", err=True
+        )  # friendly; seed_demo() enforces it
         raise typer.Exit(2)
 
 
 def register(app: typer.Typer) -> None:
+    @app.command("export-openapi")
+    def export_openapi_command(
+        output: Annotated[Path, typer.Option("--output", "-o", help="Target file.")] = Path(
+            "docs/openapi.json"
+        ),
+    ) -> None:
+        """Write the OpenAPI document (docs/openapi.json by default). Needs no database or secrets."""
+        from app.main import create_app
+
+        output.parent.mkdir(parents=True, exist_ok=True)
+        document = create_app().openapi()
+        output.write_text(json.dumps(document, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+        typer.echo(f"wrote {output} ({len(document['paths'])} paths)")
+
     @app.command("seed-demo")
     def seed_demo_command() -> None:
         """Create the demo organizations, assessments, roles, invites and reviews (no-op if present)."""

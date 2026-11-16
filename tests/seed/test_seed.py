@@ -7,9 +7,12 @@ from app.core.config import settings
 from app.core.db import system_context, tenant_session
 from seed import data
 from seed.demo import demo_counts, reset_demo, seed_demo
+from seed.wipe import wipe_demo
 
 
-async def test_reset_demo_is_repeatable_and_counts_match_plan(db_engine) -> None:
+async def test_reset_demo_is_repeatable_and_counts_match_plan(
+    db_engine, monkeypatch: pytest.MonkeyPatch
+) -> None:
     first = await seed_demo()
     assert first["status"] == "seeded"
     assert first["counts"] == data.EXPECTED_COUNTS
@@ -33,6 +36,13 @@ async def test_reset_demo_is_repeatable_and_counts_match_plan(db_engine) -> None
         ).scalar_one()
     assert flagged == total == 2
     assert leftovers == 1
+
+    # destructive and seeding paths refuse production inside the code, not only in the CLI
+    monkeypatch.setattr(settings, "app_env", "prod")
+    for entry in (seed_demo, reset_demo, wipe_demo):
+        with pytest.raises(RuntimeError):
+            await entry()
+    assert await demo_counts() == data.EXPECTED_COUNTS
 
 
 async def test_demo_accounts_can_login(db_engine, client, monkeypatch: pytest.MonkeyPatch) -> None:

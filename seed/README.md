@@ -10,14 +10,21 @@ decisions), so audit entries, notifications and scores are real. Refused when `A
 
 ## What reset-demo deletes
 
-Only organizations flagged `is_demo = true` with everything inside them, and the demo platform admin.
+Only the organizations that are flagged `is_demo = true`, carry the reserved slugs `demo-one` / `acme-demo`
+and were created by the demo platform admin, with everything inside them, plus that platform admin.
 Real data is never touched. The audit log is append-only (database trigger), so audit rows written for
 earlier demo runs stay behind. The break-glass default super admin (`DEFAULT_SA_*`) is created when those
 variables are set and is never removed.
 
 ## Demo accounts
 
-All accounts share the demo-only password `DemoPass#2026` (no forced change). Emails are on the reserved
+The demo super admin is a dev-only account. `seed-demo`, `reset-demo` and the wipe refuse to run when
+`APP_ENV=prod` (a hard error inside the seed code, not only in the CLI), so these accounts never exist in
+production.
+
+All accounts share the demo-only password `DemoPass#2026` (no forced change). Set the `DEMO_PASSWORD`
+environment variable to use another one (it must satisfy the password policy). Staff passwords are set
+through the real change-password service, so the organization's policy applies. Emails are on the reserved
 domain `demo.example.com`.
 
 | Account | Email | Role |

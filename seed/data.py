@@ -4,10 +4,13 @@ Every address is on a reserved test domain and every password is demo-only. The 
 ``seed/demo.py`` turns these specs into rows by calling the real services.
 """
 
+import os
 from dataclasses import dataclass, field
 from typing import Literal
 
-DEMO_PASSWORD = "DemoPass#2026"  # demo-only; shared by every demo account (documented in seed/README.md)
+# Demo-only password shared by every demo account. Override with the DEMO_PASSWORD environment variable
+# (it must satisfy the normal password policy). The seed never runs in production.
+DEMO_PASSWORD = os.environ.get("DEMO_PASSWORD") or "DemoPass#2026"
 DEMO_DOMAIN = "demo.example.com"
 CANDIDATE_DOMAIN = "candidates.demo.example.com"
 

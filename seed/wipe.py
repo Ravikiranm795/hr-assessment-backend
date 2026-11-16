@@ -1,5 +1,5 @@
-"""Remove demo data: every organization flagged ``is_demo`` with everything inside it, plus the demo
-platform admin. Real data is never touched.
+"""Remove demo data: the demo organizations (flagged ``is_demo``, reserved slug, created by the demo
+platform admin) with everything inside them, plus the demo platform admin. Real data is never touched.
 
 The audit log is append-only (a database trigger refuses deletes), so audit rows written for demo
 organizations stay; they only reference ids that no longer exist.
@@ -7,9 +7,25 @@ organizations stay; they only reference ids that no longer exist.
 
 from sqlalchemy import text
 
+from app.core.config import settings
 from app.core.db import system_context, tenant_session
 from app.core.storage import get_storage
-from seed.data import PLATFORM_ADMIN
+from seed.data import ORG1_SLUG, ORG2_SLUG, PLATFORM_ADMIN
+
+# A demo organization is flagged ``is_demo``, carries one of the reserved demo slugs AND was created by the
+# demo platform admin. All three must hold, so no other organization can ever be matched.
+DEMO_ORGS_SQL = (
+    "SELECT id FROM organizations WHERE is_demo AND slug IN (:s1, :s2) AND created_by IN "
+    "(SELECT id FROM users WHERE org_id IS NULL AND email = :sa AND NOT is_default_super_admin)"
+)
+DEMO_PARAMS = {"s1": ORG1_SLUG, "s2": ORG2_SLUG, "sa": PLATFORM_ADMIN.email}
+
+
+def refuse_in_prod() -> None:
+    """Hard stop for every seed entry point (the CLI check only adds a friendlier message)."""
+    if settings.app_env == "prod":
+        raise RuntimeError("Demo data is never created or removed in a production environment (APP_ENV=prod)")
+
 
 # Child tables first. Each statement is scoped by the demo organization ids (:o).
 _DELETES = (
@@ -42,9 +58,10 @@ _DELETES = (
 
 async def wipe_demo() -> dict[str, int]:
     """Delete all demo data in one transaction. Returns ``{"organizations": n, "storage_files": n}``."""
+    refuse_in_prod()
     ctx = system_context("reset-demo")
     async with tenant_session(ctx) as session:
-        org_ids = list((await session.execute(text("SELECT id FROM organizations WHERE is_demo"))).scalars())
+        org_ids = list((await session.execute(text(DEMO_ORGS_SQL), DEMO_PARAMS)).scalars())
         keys: list[str] = []
         if org_ids:
             keys = list(
