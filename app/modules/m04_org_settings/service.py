@@ -909,6 +909,11 @@ class DocumentService:
     async def publish_out(self, ctx: TenantContext, doc_id: UUID, version_id: UUID) -> schemas.VersionOut:
         return await self._version_out(_org_id(ctx), await self.publish_version(ctx, doc_id, version_id))
 
+    async def published_view(self, org_id: UUID, doc_type: str) -> schemas.VersionOut | None:
+        """Interface for M8: the latest published version of a document type, as the API shape."""
+        version = await self.latest_published(org_id, doc_type)
+        return await self._version_out(org_id, version) if version else None
+
     async def latest_published(self, org_id: UUID, doc_type: str) -> DocumentVersion | None:
         """Interface for M8: the current published version of the organization's document of this type."""
         return await repo.latest_published(self.session, org_id, doc_type)
