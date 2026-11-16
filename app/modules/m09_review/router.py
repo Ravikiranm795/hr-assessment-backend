@@ -142,7 +142,20 @@ async def dismiss(attempt_id: UUID, event_id: UUID, body: DismissIn, ctx: Editor
     "/attempts/{attempt_id}/extra-time",
     summary="Add extra time",
     description="Moves the deadline of an attempt that is in progress. Reason required; audited.",
-    responses=_errors(*BASE, "CONFLICT", "VALIDATION_ERROR"),
+    responses={
+        200: {
+            "description": "The attempt with its new deadline.",
+            "content": {
+                "application/json": {
+                    "example": {
+                        "attempt_id": "0b6f5c0e-5d3a-4c8e-9a64-2f1c3e8d7a10",
+                        "deadline_at": "2026-11-16T10:45:00Z",
+                    }
+                }
+            },
+        },
+        **_errors(*BASE, "CONFLICT", "VALIDATION_ERROR"),
+    },
 )
 async def extra_time(attempt_id: UUID, body: ExtraTimeIn, ctx: Editor, session: DbSession):
     return await ReviewService.extra_time(ctx, session, attempt_id, body)

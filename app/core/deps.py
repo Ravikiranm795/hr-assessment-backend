@@ -19,6 +19,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core import flags
 from app.core.db import TenantContext, tenant_session
 from app.core.errors import AppError
+from app.core.openapi_meta import enrich
 from app.core.roles import CANDIDATE, HR_USER, ORG_ADMIN, STAFF_ROLES
 from app.core.security import EXAM_AUDIENCE, Claims, decode_token
 
@@ -325,6 +326,7 @@ def install_openapi_extensions(app: FastAPI) -> None:
                 else:
                     operation.setdefault("x-roles", [])
                     operation.setdefault("x-required-flag", flag)
+        enrich(schema)  # security schemes, per-operation security, generated response examples
         app.openapi_schema = schema
         return schema
 

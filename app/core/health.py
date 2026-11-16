@@ -11,12 +11,49 @@ router = APIRouter(tags=["health"])
 _PUBLIC = {"x-roles": [], "x-required-flag": None}
 
 
-@router.get("/health", openapi_extra=_PUBLIC)
+@router.get(
+    "/health",
+    summary="Liveness check",
+    description="Returns `ok` while the process is running. It does not touch the database; use it for "
+    "container liveness probes.",
+    responses={
+        200: {"content": {"application/json": {"example": {"status": "ok"}}}},
+        500: {
+            "description": "Unexpected server error (`INTERNAL_ERROR`).",
+            "content": {
+                "application/json": {
+                    "example": {
+                        "error": {
+                            "code": "INTERNAL_ERROR",
+                            "message_key": "errors.common.internal",
+                            "details": {},
+                            "request_id": "6f1c1b9e-2d7a-4c44-9c52-1f0f1d7a9a10",
+                        }
+                    }
+                }
+            },
+        },
+    },
+    openapi_extra=_PUBLIC,
+)
 async def health() -> dict[str, str]:
     return {"status": "ok"}
 
 
-@router.get("/health/ready", openapi_extra=_PUBLIC)
+@router.get(
+    "/health/ready",
+    summary="Readiness check",
+    description="Opens a database connection and runs `SELECT 1`. Returns 503 while the database is "
+    "unreachable, so load balancers stop sending traffic.",
+    responses={
+        200: {"content": {"application/json": {"example": {"status": "ready", "database": "ok"}}}},
+        503: {
+            "description": "The database is not reachable.",
+            "content": {"application/json": {"example": {"status": "unavailable", "database": "error"}}},
+        },
+    },
+    openapi_extra=_PUBLIC,
+)
 async def ready() -> JSONResponse:
     dsn = settings.database_url.replace("+asyncpg", "", 1)
     try:
@@ -30,6 +67,33 @@ async def ready() -> JSONResponse:
     return JSONResponse({"status": "ready", "database": "ok"})
 
 
-@router.get("/version", openapi_extra=_PUBLIC)
+@router.get(
+    "/version",
+    summary="Application version",
+    description="Product slug, build version and runtime environment (`dev`, `test` or `prod`).",
+    responses={
+        200: {
+            "content": {
+                "application/json": {"example": {"name": "hr-assessment", "version": "0.1.0", "env": "dev"}}
+            }
+        },
+        500: {
+            "description": "Unexpected server error (`INTERNAL_ERROR`).",
+            "content": {
+                "application/json": {
+                    "example": {
+                        "error": {
+                            "code": "INTERNAL_ERROR",
+                            "message_key": "errors.common.internal",
+                            "details": {},
+                            "request_id": "6f1c1b9e-2d7a-4c44-9c52-1f0f1d7a9a10",
+                        }
+                    }
+                }
+            },
+        },
+    },
+    openapi_extra=_PUBLIC,
+)
 async def version() -> dict[str, str]:
     return {"name": settings.app_slug, "version": __version__, "env": settings.app_env}
