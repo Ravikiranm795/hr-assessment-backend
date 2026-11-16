@@ -39,7 +39,7 @@ ENV PATH="/opt/venv/bin:$PATH" \
 COPY --from=builder /opt/venv /opt/venv
 
 WORKDIR /app
-COPY --chown=app:app . /app
+COPY . /app
 RUN chmod +x /app/docker/entrypoint.sh \
     && mkdir -p /app/storage_data \
     && chown app:app /app/storage_data
