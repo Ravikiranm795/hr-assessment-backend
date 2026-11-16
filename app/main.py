@@ -25,7 +25,14 @@ def create_app(app_settings: Settings | None = None) -> FastAPI:
     cfg = app_settings or default_settings
     logging.basicConfig(level=cfg.log_level.upper())
 
-    api = FastAPI(title=cfg.app_name, version=__version__)
+    docs = bool(cfg.enable_docs)
+    api = FastAPI(
+        title=cfg.app_name,
+        version=__version__,
+        docs_url="/docs" if docs else None,
+        redoc_url="/redoc" if docs else None,
+        openapi_url="/openapi.json" if docs else None,
+    )
     api.add_middleware(
         CORSMiddleware,
         allow_origins=cfg.cors_origins,

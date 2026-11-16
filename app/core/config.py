@@ -83,7 +83,10 @@ class Settings(BaseSettings):
 
     cors_origins: CommaList = ["http://localhost:3000"]
     cookie_domain: str = ""
-    cookie_secure: bool = False
+    # Secure flag of the refresh and exam-binding cookies. Unset: true in prod, false elsewhere (plain-http dev).
+    cookie_secure: bool | None = None
+    # Swagger UI, ReDoc and /openapi.json. Unset: on in dev/test, off in prod (export with `export-openapi`).
+    enable_docs: bool | None = None
 
     ai_cli_allowlist: CommaList = ["claude"]
     ai_cli_timeout_sec: int = 120
@@ -118,6 +121,20 @@ class Settings(BaseSettings):
     def app_slug(self) -> str:
         """Lowercase, hyphenated form of the name (display only; the JWT issuer is ``jwt_issuer``)."""
         return _slug(self.app_name)
+
+    @model_validator(mode="after")
+    def _env_defaults(self) -> "Settings":
+        if self.cookie_secure is None:
+            self.cookie_secure = self.app_env == "prod"
+        if self.enable_docs is None:
+            self.enable_docs = self.app_env != "prod"
+        return self
+
+    @model_validator(mode="after")
+    def _s3_needs_bucket(self) -> "Settings":
+        if self.storage_driver == "s3" and not self.s3_bucket:
+            raise ValueError("S3_BUCKET is required when STORAGE_DRIVER=s3")
+        return self
 
     @model_validator(mode="after")
     def _require_secrets_in_prod(self) -> "Settings":

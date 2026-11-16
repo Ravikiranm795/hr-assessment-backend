@@ -25,8 +25,10 @@ def matches(request: Request, stored_hash: str | None) -> bool:
 
 
 def cookie_options() -> dict:
+    # Spec 8.1 fixes no SameSite for the binding cookie (the refresh cookie is Strict); Lax keeps it on
+    # same-site fetches and top-level navigations from the invite link.
     return {
-        "key": BINDING_COOKIE, "httponly": True, "samesite": "lax", "secure": settings.app_env == "prod",
+        "key": BINDING_COOKIE, "httponly": True, "samesite": "lax", "secure": bool(settings.cookie_secure),
         "path": COOKIE_PATH, "max_age": security.EXAM_TOKEN_MAX_HOURS * 3600,
     }  # fmt: skip
 
