@@ -232,6 +232,21 @@ class EmailSettingsService:
         )
         return self._out(row)
 
+    async def smtp_for_sending(self, org_id: UUID) -> SmtpConfig:
+        """Interface for M7: the decrypted SMTP config, only when saved, enabled and verified
+        (``SMTP_NOT_CONFIGURED`` otherwise)."""
+        row = await repo.get_email(self.session, org_id)
+        if row is None or not row.enabled or row.verified_at is None:
+            raise AppError("SMTP_NOT_CONFIGURED")
+        try:
+            password = security.decrypt_field(row.password_enc) if row.password_enc else None
+        except ValueError:
+            raise AppError("SMTP_NOT_CONFIGURED", details={"reason": "credentials_unreadable"}) from None
+        return SmtpConfig(
+            host=row.host, port=row.port, security=SMTP_SECURITY[row.security],  # type: ignore[arg-type]
+            username=row.username, password=password, sender_email=row.sender_email, sender_name=row.sender_name,
+        )  # fmt: skip
+
     async def send_test(self, ctx: TenantContext, to: str) -> schemas.EmailTestOut:
         org_id = _org_id(ctx)
         check_rate_limit(EMAIL_TEST_LIMIT, "email_test", "org", str(org_id))
