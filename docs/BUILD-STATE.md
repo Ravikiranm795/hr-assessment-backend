@@ -5,10 +5,16 @@ Controller ledger (git-ignored, richer): `.superpowers/sdd/2026-11-16-backend-on
 Run anything inside Docker: `docker compose -f docker/docker-compose.yml run --rm api pytest tests/<module> -q`.
 
 ## Done and committed
-Task 1 skeleton, Task 2 core, Task 3 schema/RLS (+ runtime `SET LOCAL ROLE` fix), Task 9 audit (M10).
+Task 1 skeleton, Task 2 core, Task 3 schema/RLS (+ runtime `SET LOCAL ROLE` fix), Task 4 auth (M1, 14 tests), Task 9 audit (M10, 58 tests).
 
-## In progress (code on disk, agents died on the 5-hour limit)
-T4 m01_auth, T5 m02_platform + m03_team, T6 m04_org_settings, T7 m05_assessments (+T8 m05b), T10 m14_ai. WIP-checkpointed in a commit; each needs its tests green and a real commit.
+## In progress (stopped by the user at ~13:25 IST to continue in the CLI; code on disk, WIP-committed)
+T5 m02_platform + m03_team (m02 mostly missing), T6 m04_org_settings, T7 m05_assessments (+T8 m05b, not started), T10 m14_ai (no tests yet). Each needs its lean tests green and a real commit with the message from its brief.
+
+## How to resume in the CLI
+1. `cd hr-assessment-backend && git checkout build/one-shot`; read this file and the ledger.
+2. Task briefs are in `.superpowers/sdd/2026-11-16-backend-one-shot-build/task-N-brief.md` (regenerate with the superpowers `subagent-driven-development` `scripts/task-brief` if missing). Common rules: `module-agent-common.md` in the same folder.
+3. Resume order (critical path first): T7+T8, T5, T6, T10, then the Wave 1 gate fixes, then Wave 2.
+4. Agents from the old session cannot be resumed from a new CLI session; dispatch fresh agents from the briefs and tell them the module dirs already contain WIP to continue from.
 
 ## Pending
 Wave 2 (T11 roles, T12 invites, T13 reports, T14 dashboard), T15 exam, T16 review, T17 jobs, T18 gadget data, T19 AI scoring, T20 security suite, T21 e2e, T22 seed, T23 openapi, T24 handover.

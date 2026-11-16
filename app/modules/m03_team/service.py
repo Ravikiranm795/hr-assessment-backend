@@ -8,7 +8,6 @@ is the A-04 guard other modules call before anything that could leave an org wit
 """
 
 import asyncio
-from datetime import UTC, datetime
 from typing import Any
 from uuid import UUID
 
@@ -324,7 +323,9 @@ class TeamService:
         after = snapshot(user)
         if after != before:
             await repo.save_user(session)
-            await audit.record(ctx, session, audit.USER_UPDATED, "user", user.id, before=before, after=snapshot(user))
+            await audit.record(
+                ctx, session, audit.USER_UPDATED, "user", user.id, before=before, after=snapshot(user)
+            )
         return user, await self.owned_roles(ctx, session, user)
 
     async def deactivate(
@@ -348,7 +349,9 @@ class TeamService:
         await self.admin.reactivate(ctx, session, user, action=audit.USER_REACTIVATED)
         return user, await self.owned_roles(ctx, session, user)
 
-    async def reset_password(self, ctx: TenantContext, session: AsyncSession, user_id: UUID) -> tuple[User, str]:
+    async def reset_password(
+        self, ctx: TenantContext, session: AsyncSession, user_id: UUID
+    ) -> tuple[User, str]:
         user = await self._manageable(ctx, session, user_id)
         return user, await self.admin.reset_password(ctx, session, user)
 
@@ -361,7 +364,3 @@ class TeamService:
         user = await self._manageable(ctx, session, user_id)
         await self.admin.sign_out_everywhere(ctx, session, user)
         return user
-
-
-def utcnow() -> datetime:
-    return datetime.now(UTC)

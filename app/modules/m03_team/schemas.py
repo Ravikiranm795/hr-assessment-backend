@@ -4,10 +4,16 @@ from datetime import UTC, datetime
 from typing import Annotated
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, EmailStr, Field, StringConstraints, computed_field
+from pydantic import BaseModel, BeforeValidator, ConfigDict, EmailStr, Field, StringConstraints, computed_field
 
+Email = Annotated[EmailStr, BeforeValidator(lambda v: v.strip() if isinstance(v, str) else v)]
 Name = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=200)]
-Locale = Annotated[str, StringConstraints(strip_whitespace=True, pattern=r"^[A-Za-z]{2,3}([-_][A-Za-z0-9]{2,8})?$", max_length=16)]
+Locale = Annotated[
+    str,
+    StringConstraints(
+        strip_whitespace=True, pattern=r"^[A-Za-z]{2,3}([-_][A-Za-z0-9]{2,8})?$", max_length=16
+    ),
+]
 Reason = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=500)]
 
 _USER_EXAMPLE = {
@@ -54,7 +60,9 @@ class OwnedRoleOut(BaseModel):
     title: str
     status: str
     owner_id: UUID
-    owner_inactive: bool = Field(description="True while the owning user is deactivated and the role is not reassigned.")
+    owner_inactive: bool = Field(
+        description="True while the owning user is deactivated and the role is not reassigned."
+    )
 
 
 class UserDetailOut(UserOut):
@@ -84,7 +92,9 @@ class UserDetailOut(UserOut):
 class DeactivatedUserOut(UserDetailOut):
     model_config = ConfigDict(
         from_attributes=True,
-        json_schema_extra={"examples": [{**_USER_EXAMPLE, "status": "inactive", "owned_roles": [], "reassigned_roles": 2}]},
+        json_schema_extra={
+            "examples": [{**_USER_EXAMPLE, "status": "inactive", "owned_roles": [], "reassigned_roles": 2}]
+        },
     )
 
     reassigned_roles: int = Field(0, description="Roles moved to reassign_roles_to during this deactivation.")
@@ -92,11 +102,13 @@ class DeactivatedUserOut(UserDetailOut):
 
 class UserCreate(BaseModel):
     model_config = ConfigDict(
-        json_schema_extra={"examples": [{"name": "Hana Recruiter", "email": "hana@example.com", "locale": "en"}]}
+        json_schema_extra={
+            "examples": [{"name": "Hana Recruiter", "email": "hana@example.com", "locale": "en"}]
+        }
     )
 
     name: Name
-    email: EmailStr
+    email: Email
     locale: Locale | None = None
     role: str | None = Field(
         None,
@@ -110,7 +122,9 @@ class UserWithTempPasswordOut(BaseModel):
     )
 
     user: UserOut
-    temporary_password: str = Field(description="Shown once. It is never stored in clear text nor returned again.")
+    temporary_password: str = Field(
+        description="Shown once. It is never stored in clear text nor returned again."
+    )
 
 
 class UserUpdate(BaseModel):
@@ -118,13 +132,19 @@ class UserUpdate(BaseModel):
 
     name: Name | None = None
     locale: Locale | None = None
-    email: EmailStr | None = Field(None, description="Allowed only before the user's first login.")
-    role: str | None = Field(None, description="Promotion is never possible here: any value is ADMIN_ONLY_ACTION.")
+    email: Email | None = Field(None, description="Allowed only before the user's first login.")
+    role: str | None = Field(
+        None, description="Promotion is never possible here: any value is ADMIN_ONLY_ACTION."
+    )
 
 
 class DeactivateIn(BaseModel):
     model_config = ConfigDict(
-        json_schema_extra={"examples": [{"reassign_roles_to": "5e2f0a1c-9d4b-4c7e-8f31-6a0b2d9c1e77", "reason": "Left the company"}]}
+        json_schema_extra={
+            "examples": [
+                {"reassign_roles_to": "5e2f0a1c-9d4b-4c7e-8f31-6a0b2d9c1e77", "reason": "Left the company"}
+            ]
+        }
     )
 
     reassign_roles_to: UUID | None = Field(
@@ -137,7 +157,11 @@ class TempPasswordOut(BaseModel):
     model_config = ConfigDict(
         json_schema_extra={
             "examples": [
-                {"user_id": _USER_EXAMPLE["id"], "temporary_password": "q7Hn-Vb3x!Rt9LmZ", "must_change_password": True}
+                {
+                    "user_id": _USER_EXAMPLE["id"],
+                    "temporary_password": "q7Hn-Vb3x!Rt9LmZ",
+                    "must_change_password": True,
+                }
             ]
         }
     )

@@ -25,7 +25,9 @@ SORT_COLUMNS = {
 }
 
 
-async def get_user(session: AsyncSession, org_id: UUID, user_id: UUID, *, for_update: bool = False) -> User | None:
+async def get_user(
+    session: AsyncSession, org_id: UUID, user_id: UUID, *, for_update: bool = False
+) -> User | None:
     stmt = select(User).where(User.id == user_id, User.org_id == org_id)
     if for_update:
         stmt = stmt.with_for_update()
@@ -62,7 +64,8 @@ async def list_users(
         conditions.append(or_(User.name.ilike(pattern, escape="\\"), User.email.ilike(pattern, escape="\\")))
     total = (await session.execute(select(func.count()).select_from(User).where(*conditions))).scalar_one()
     order = [
-        SORT_COLUMNS[field].desc() if direction == "desc" else SORT_COLUMNS[field].asc() for field, direction in sort
+        SORT_COLUMNS[field].desc() if direction == "desc" else SORT_COLUMNS[field].asc()
+        for field, direction in sort
     ] or [User.created_at.asc()]
     rows = await session.execute(
         select(User).where(*conditions).order_by(*order, User.id).offset(offset).limit(limit)
