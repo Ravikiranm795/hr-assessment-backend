@@ -269,6 +269,28 @@ async def test_open_refuses_bad_invites(client, world, open_role, db_session, mu
     assert r.json()["error"]["code"] == code
 
 
+async def _set_org_status(db_session, status):
+    await db_session.execute(text("UPDATE organizations SET status = :s"), {"s": status})
+    await db_session.commit()
+
+
+async def test_disabled_org_starts_no_exam_but_a_running_attempt_finishes(
+    client, world, open_role, db_session
+):
+    invite = await _invite(db_session, world, open_role)
+    h = await _open(client, invite)
+    await _ready(client, h)
+    await _set_org_status(db_session, "disabled")
+    refused = await client.post(f"{API}/session/start", headers=h)
+    assert refused.status_code == 403 and refused.json()["error"]["code"] == "ORG_DISABLED"
+    await _set_org_status(db_session, "active")
+    assert (await client.post(f"{API}/session/start", headers=h)).status_code == 200
+    await _set_org_status(db_session, "disabled")
+    assert (await client.post(f"{API}/session/start", headers=h)).status_code == 200  # running: idempotent
+    assert (await client.post(f"{API}/heartbeat", headers=h)).status_code == 200
+    assert (await client.post(f"{API}/submit", headers=h)).json()["status"] == "submitted"
+
+
 async def test_reset_binding_cuts_off_the_old_session_and_revoke_blocks(client, world, open_role, db_session):
     invite, h = await _started(client, db_session, world, open_role)
     assert (await client.post(f"{API}/heartbeat", headers=h)).status_code == 200

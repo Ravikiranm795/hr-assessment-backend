@@ -272,6 +272,10 @@ class ExamService:
         _not_submitted(attempt)
         if attempt.status == "in_progress":
             return ExamService._timing(attempt)  # idempotent: a refresh must not restart the clock
+        if await repo.org_status(session, attempt.org_id) != "active":
+            raise AppError(
+                "ORG_DISABLED"
+            )  # spec 5: a disabled organization starts no exams (running ones finish)
         if invite.status == "invited" and invite.expires_at <= _now():
             raise AppError("INVITE_EXPIRED")
         if attempt.consent_at is None:
