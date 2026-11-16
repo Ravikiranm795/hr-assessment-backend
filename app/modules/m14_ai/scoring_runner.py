@@ -17,7 +17,7 @@ from uuid import UUID
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core import notifications
-from app.core.db import TenantContext, system_context
+from app.core.db import TenantContext
 from app.core.errors import AppError
 from app.modules.m05_assessments.service import get_published_version
 from app.modules.m09_review import hooks, repo
@@ -65,7 +65,11 @@ async def run_ai_scoring(ctx: TenantContext, session: AsyncSession, attempt_id: 
         return
     version = await get_published_version(session, attempt.org_id, attempt.assessment_version_id)
     rows = {a.question_id: a for a in await repo.answers(session, attempt.id)}
-    system = system_context(f"ai-scoring-{attempt.id}", attempt.org_id)
+    # The caller's own context is used, so audit and usage rows name who triggered scoring (HR rescore)
+    # or the system (retry job). The candidate's name never reaches the provider.
+    invite = await repo.invite_for(session, attempt.org_id, attempt.invite_id)
+    name = (invite.get("candidate_name") or "").strip()
+    redact = tuple(dict.fromkeys(t for t in (name, *name.split()) if len(t) >= 2))
     service = AiService(session)
     for q in version.questions:
         row = rows.get(q.id)
@@ -76,7 +80,7 @@ async def run_ai_scoring(ctx: TenantContext, session: AsyncSession, attempt_id: 
             continue
         try:
             result = await service.score_answer(
-                system, q.prompt_html, _reference(q), float(q.marks), text, entity_id=row.id
+                ctx, q.prompt_html, _reference(q), float(q.marks), text, entity_id=row.id, redact_terms=redact
             )
         except AppError as exc:
             log.warning("ai scoring failed attempt=%s code=%s", attempt.id, exc.code)

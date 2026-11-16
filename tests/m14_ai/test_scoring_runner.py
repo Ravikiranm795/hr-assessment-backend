@@ -164,3 +164,37 @@ async def test_audit_ai_scoring_run_has_counts_only_and_no_answer_text(world, co
     assert len(audit) == 1 and "answers" in audit[0]["a"]
     assert "SECRET-ANSWER" not in audit[0]["a"] and "Covers the main idea" not in audit[0]["a"]
     assert "jane@example.com" not in mock.calls[0]["prompt"] and "SECRET-ANSWER" in mock.calls[0]["prompt"]
+
+
+async def test_prompt_never_contains_candidate_name_and_audit_names_the_triggering_user(
+    world, configure, db_session
+):
+    await configure(world.org)
+    attempt, _ = await _ai_attempt(db_session, world)
+    name = (
+        await _sql(
+            db_session,
+            "SELECT i.candidate_name AS n FROM invites i JOIN attempts a ON a.invite_id = i.id WHERE a.id = :a",
+            a=attempt.id,
+        )
+    )[0]["n"]
+    await db_session.execute(
+        text(
+            "UPDATE attempt_answers SET answer = CAST(:a AS jsonb) WHERE attempt_id = :t AND answer ? 'text'"
+        ),
+        {"a": '{"text": "Regards, ' + name + ' - joins merge rows"}', "t": attempt.id},
+    )
+    await db_session.commit()
+    mock = MockProvider(GOOD)
+    set_provider_override(mock)
+    hr = TenantContext(org_id=world.org.id, user_id=world.hr_owner.id, role="hr_user", is_platform=False,
+                       request_id="t", ip=None, user_agent=None)  # fmt: skip
+    async with tenant_session(hr) as session:
+        await run_ai_scoring(hr, session, attempt.id)  # an HR rescore
+    assert name not in mock.calls[0]["prompt"] and "joins merge rows" in mock.calls[0]["prompt"]
+    audit = await _sql(
+        db_session, "SELECT actor_user_id, actor_type FROM audit_logs WHERE action = 'AI_SCORING_RUN'"
+    )
+    usage = await _sql(db_session, "SELECT user_id FROM ai_usage_log")
+    assert [(a["actor_user_id"], a["actor_type"]) for a in audit] == [(world.hr_owner.id, "user")]
+    assert [u["user_id"] for u in usage] == [world.hr_owner.id]
