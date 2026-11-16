@@ -267,3 +267,36 @@ async def test_open_refuses_bad_invites(client, world, open_role, db_session, mu
     token = invite.raw_token if mutation else "x" * 40
     r = await client.post(f"{API}/session/open", json={"token": token})
     assert r.json()["error"]["code"] == code
+
+
+async def test_reset_binding_cuts_off_the_old_session_and_revoke_blocks(client, world, open_role, db_session):
+    invite, h = await _started(client, db_session, world, open_role)
+    assert (await client.post(f"{API}/heartbeat", headers=h)).status_code == 200
+    await db_session.execute(
+        text("UPDATE invites SET session_binding_hash = NULL WHERE id = :i"), {"i": invite.id}
+    )
+    await db_session.commit()
+    stale = await client.post(f"{API}/heartbeat", headers=h)  # same token and cookie, binding was reset
+    assert stale.status_code == 403 and stale.json()["error"]["code"] == "LINK_BOUND_TO_OTHER_SESSION"
+    fresh = await _open(client, invite)  # opening again binds the new browser
+    assert (await client.post(f"{API}/heartbeat", headers=fresh)).status_code == 200
+    await db_session.execute(text("UPDATE invites SET status = 'revoked' WHERE id = :i"), {"i": invite.id})
+    await db_session.commit()
+    assert (await client.post(f"{API}/heartbeat", headers=fresh)).json()["error"]["code"] == "INVITE_REVOKED"
+
+
+async def test_snapshot_cannot_be_reattached_to_an_event(client, world, open_role, db_session):
+    invite, h = await _started(client, db_session, world, open_role)
+    await client.post(f"{API}/events", json={"events": [{"type": "no_face"}]}, headers=h)
+    event = (await _sql(db_session, "SELECT id FROM proctor_events WHERE type = 'no_face'"))[0]["id"]
+    files = multipart("file", "s.png", png_bytes(), "image/png")
+    first = await client.post(f"{API}/snapshots", headers=h, data={"event_id": str(event)}, **files)
+    assert first.status_code == 201
+    from app.core.ratelimit import set_rate_limiter
+
+    set_rate_limiter(None)  # skip the per-attempt spacing to reach the conflict rule
+    second = await client.post(f"{API}/snapshots", headers=h, data={"event_id": str(event)}, **files)
+    assert (
+        second.status_code == 409
+        and second.json()["error"]["details"]["reason"] == "snapshot_already_attached"
+    )

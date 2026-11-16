@@ -74,6 +74,12 @@ async def _load(session: AsyncSession, exam: ExamContext, *, lock: bool = False)
     invite = await repo.get_invite(session, exam.ctx.org_id, exam.invite_id)
     if attempt is None or invite is None:
         raise AppError("UNAUTHENTICATED")
+    # the token's binding claim must still match the stored one (reset-binding clears it), and a revoked
+    # invite loses access at once
+    if invite.session_binding_hash is None or invite.session_binding_hash != exam.binding:
+        raise AppError("LINK_BOUND_TO_OTHER_SESSION")
+    if invite.status == "revoked":
+        raise AppError("INVITE_REVOKED")
     return attempt, invite
 
 
@@ -356,7 +362,7 @@ class ExamService:
         session: AsyncSession, exam: ExamContext, question_id: UUID, body: AnswerIn
     ) -> AnswerOut:
         """Idempotent, last write wins. Accepted until the deadline plus a 5 s grace (RF-2)."""
-        attempt, _ = await _load(session, exam)
+        attempt, _ = await _load(session, exam, lock=True)  # serialized against finalize
         ExamService._live(attempt)
         now = _now()
         if attempt.deadline_at is not None and now > attempt.deadline_at + SAVE_GRACE:
@@ -431,6 +437,8 @@ class ExamService:
             event = await repo.get_event(session, attempt.org_id, attempt.id, event_id)
             if event is None:
                 raise AppError("NOT_FOUND")
+            if event.snapshot_asset_id is not None:
+                raise AppError("CONFLICT", details={"reason": "snapshot_already_attached"})
         data, declared = await read_limited(upload)
         info = inspect_image(data, declared=declared)
         storage = get_storage()
