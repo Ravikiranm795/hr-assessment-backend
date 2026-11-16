@@ -47,3 +47,9 @@ See ledger: migration hardening (reports_ro column grants, RLS on password_histo
 - [x] T19 AI scoring runner (6 tests): `m14_ai/scoring_runner.run_ai_scoring` on `review.hooks.ai_scoring_hooks`, registered when the API loads the m14 router and when the worker loads `retry_ai_scoring`. Decision: from the candidate submit path it DEFERS (attempt stays `pending`, so the candidate never waits on a provider); the `retry_ai_scoring` job (every 5 min) or an HR rescore runs it. Any AI failure/missing provider/flag off -> `needs_manual` + owner notified (spec 7.3), per the spec rather than a retry counter.
 - Last full suite (before the test-isolation fixes for the new hook): 663 passed + 2 failures that are fixed; re-run at the next gate.
 - Next: T13 M11 reports, T20 security suite, T21 e2e, T22 seed, T23 openapi, T24 handover.
+
+## Dev-first policy (user, 2026-11-16 evening)
+- Development completion is the priority. NO new unit/e2e/security pytest suites and no full-suite runs per round; each agent runs only its own module's tests. Test writing/analysis is deferred to the very end.
+- T20/T21 replaced by live API verification: `scripts/smoke_e2e.py`, `scripts/smoke_security.py`, report in `docs/smoke_report.md`.
+- 2-3 agents at a time, disjoint directories. Remaining: T13 M11 reports, T22 seed, T23 openapi, T24 handover, then one final full-suite run.
+- brainu 1.0.0 is installed globally but `brain build` segfaults (exit 139, tree-sitter native) on Node 24 and Node 20 on this machine, so no brain index exists for this repo.
