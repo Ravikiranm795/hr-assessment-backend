@@ -109,6 +109,13 @@ class Settings(BaseSettings):
     log_level: str = "INFO"
     demo_mode: bool = False
 
+    @field_validator("refresh_cookie_name")
+    @classmethod
+    def _cookie_name_chars(cls, value: str) -> str:
+        if not re.fullmatch(r"[A-Za-z0-9_-]+", value):
+            raise ValueError("REFRESH_COOKIE_NAME may contain only letters, digits, '_' and '-'")
+        return value
+
     @field_validator("cors_origins", "ai_cli_allowlist", mode="before")
     @classmethod
     def _split_csv(cls, value: object) -> object:
@@ -146,6 +153,11 @@ class Settings(BaseSettings):
             ]
             if missing:
                 raise ValueError(f"missing required settings in prod: {', '.join(missing)}")
+            if self.jwt_issuer == DEFAULT_JWT_ISSUER:
+                raise ValueError(
+                    "JWT_ISSUER must be set explicitly to a non-default value in prod "
+                    "(set once per deployment and keep it: changing it logs every user out)"
+                )
         return self
 
 

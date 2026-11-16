@@ -19,6 +19,17 @@ def test_rename_keeps_jwt_issuer_and_refresh_cookie_name() -> None:
     assert renamed.refresh_cookie_name == Settings().refresh_cookie_name
 
 
+def test_prod_requires_explicit_issuer_and_cookie_name_is_validated() -> None:
+    import pytest
+
+    secrets = dict(token_pepper="x", field_encryption_keys="k1:x", jwt_private_key="x", jwt_public_key="x")
+    with pytest.raises(ValueError, match="JWT_ISSUER"):
+        Settings(app_env="prod", **secrets)
+    assert Settings(app_env="prod", jwt_issuer="acme-prod", **secrets).jwt_issuer == "acme-prod"
+    with pytest.raises(ValueError, match="REFRESH_COOKIE_NAME"):
+        Settings(refresh_cookie_name="bad name;")
+
+
 def test_watermark_text_uses_vendor(monkeypatch) -> None:
     monkeypatch.setattr(settings, "vendor_name", "Acme Widgets")
     assert branding_text.watermark() == "Powered by Acme Widgets"

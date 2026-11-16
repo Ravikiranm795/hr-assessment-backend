@@ -227,6 +227,8 @@ Defined in `app/core/config.py` (the only place that reads the environment, apar
 | `APP_RW_DB_PASSWORD`, `REPORTS_RO_DB_PASSWORD`, `MAINTENANCE_DB_PASSWORD` | unset | Read **only by the baseline migration**. When set at migration time the role becomes `LOGIN` with that password (12 to 128 characters from `A-Z a-z 0-9 ! # $ % & ( ) * + , . / : ; < = > ? @ ^ _ ~ -`; anything else aborts the migration) |
 | `JWT_PRIVATE_KEY`, `JWT_PUBLIC_KEY` | empty | PEM, Ed25519 or RSA; literal `\n` is accepted |
 | `JWT_KID` | `k1` | Key id in the token header; **one kid is accepted** (see 10.3) |
+| `JWT_ISSUER` | derived once from the original default product name | Token `iss` claim, **independent of `APP_NAME`** so a rename keeps every session. **Required in prod, explicit and non-default** (startup fails otherwise) so two deployments never share an issuer. **Changing it logs every user out: set once per deployment and keep it** |
+| `REFRESH_COOKIE_NAME` | `<default issuer>_refresh` | Refresh cookie name, independent of `APP_NAME`; letters, digits, `_` and `-` only (validated). **Changing it logs every user out: set once and keep it.** The `__Host-` prefix is deliberately not used: it requires `Path=/` and no `Domain`, while this cookie is scoped to `/api/v1/auth` (so it is not sent to other endpoints) and may carry `COOKIE_DOMAIN` for a frontend and API on sibling subdomains |
 | `ACCESS_TTL_MIN`, `REFRESH_TTL_DAYS` | 15, 7 | Token lifetimes (the inactivity timeout is per organization, default 30 min) |
 | `FIELD_ENCRYPTION_KEYS` | empty | `<kid>:<base64 32 bytes>`, comma separated, first is active |
 | `TOKEN_PEPPER` | empty | HMAC pepper (see 2.2) |
@@ -974,7 +976,7 @@ Run one module: `docker compose -f docker/docker-compose.yml run --rm api pytest
 
 **Base URLs and CORS.** All business routes are under `/api/v1`. Set `CORS_ORIGINS` to the exact frontend origin(s); credentials are allowed, so every request that needs cookies must be sent with credentials included (`fetch(..., {credentials: "include"})`). The frontend can build menus and route guards from the spec: every operation carries `x-roles` and `x-required-flag`.
 
-**Same-site requirement.** The refresh cookie is `HttpOnly`, `SameSite=Strict`, path `/api/v1/auth`, name `<product slug>_refresh`, `Secure` when `COOKIE_SECURE=true`, optional `COOKIE_DOMAIN`. A frontend on a different *site* than the API (different registrable domain) will not receive it. Serve both on the same site (for example `app.example.com` and `api.example.com`, with `COOKIE_DOMAIN` set), or proxy the API under the frontend's origin.
+**Same-site requirement.** The refresh cookie is `HttpOnly`, `SameSite=Strict`, path `/api/v1/auth`, name `REFRESH_COOKIE_NAME` (default `<default issuer>_refresh`, not tied to `APP_NAME`), `Secure` when `COOKIE_SECURE=true`, optional `COOKIE_DOMAIN`. A frontend on a different *site* than the API (different registrable domain) will not receive it. Serve both on the same site (for example `app.example.com` and `api.example.com`, with `COOKIE_DOMAIN` set), or proxy the API under the frontend's origin.
 
 **Staff auth flow.**
 1. `POST /auth/login {email, password}` returns `{access_token, expires_in: 900, token_type, must_change_password, totp_required, totp_setup_required, user}` and sets the refresh cookie. Keep the access token in memory and send `Authorization: Bearer <token>`.
