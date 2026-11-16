@@ -45,7 +45,8 @@ class OpenAIProvider(HttpProvider):
         else:
             body["response_format"] = {"type": "json_object"}
             body["messages"][0]["content"] = (
-                f"{system}\n\nReturn one JSON object that matches this JSON Schema:\n{json.dumps(json_schema)}"
+                f"{system}\n\nReturn one JSON object that matches this JSON Schema:\n"
+                f"{json.dumps(json_schema)}"
             )
         return body
 

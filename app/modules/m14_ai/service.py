@@ -189,7 +189,7 @@ class AiService:
         usage = Usage()
         calls = 0
 
-        async def ask(text: str, timeout: int) -> dict | None:
+        async def ask(text: str, timeout: int) -> dict | None:  # noqa: ASYNC109 (provider timeout, seconds)
             nonlocal calls
             calls += 1
             try:

@@ -1,4 +1,7 @@
-"""M14 AI endpoints under ``/assessments/ai`` (spec 6/M5, 7.2). Roles: HR and OA. Flag: ``ai_question_builder``."""
+"""M14 AI endpoints under ``/api/v1/assessments/ai`` (spec 6/M5, 7.2).
+
+Roles: HR and OA. Flag: ``ai_question_builder``.
+"""
 
 from typing import Annotated, Any
 
@@ -23,7 +26,7 @@ from app.modules.m14_ai.schemas import (
 from app.modules.m14_ai.service import AiService
 
 router = APIRouter(
-    prefix="/assessments/ai",
+    prefix="/api/v1/assessments/ai",
     tags=["ai"],
     dependencies=[Depends(require_feature(AI_QUESTION_BUILDER))],
 )
@@ -66,7 +69,8 @@ _COMMON = {
     response_model=AiOptionsResponse,
     summary="AI form options",
     description=(
-        "Supported question types, difficulty levels, defaults and limits for the AI question form, plus whether "
+        "Supported question types, difficulty levels, defaults and limits for the AI question form, "
+        "plus whether "
         "AI is configured for the organization. Roles: HR, OA. Flag: `ai_question_builder`."
     ),
     responses=_COMMON,
@@ -104,10 +108,14 @@ async def ai_options(ctx: Staff, session: DbSession) -> AiOptionsResponse:
     response_model=QuestionGenResponse,
     summary="Generate question suggestions with AI",
     description=(
-        "Stateless: returns a tick-list of at least 10 suggested questions built from the role, job description, "
-        "level and key skills. Nothing is stored; post the ticked items to `/questions/bulk`. Uses the organization's "
-        "own AI provider (bring your own key). Limits: 5 requests per minute per user, optional monthly call cap, "
-        "synchronous with a 90 second hard timeout. Audited as `AI_QUESTIONS_GENERATED` with counts, provider and "
+        "Stateless: returns a tick-list of at least 10 suggested questions built from the role, job "
+        "description, "
+        "level and key skills. Nothing is stored; post the ticked items to `/questions/bulk`. Uses "
+        "the organization's "
+        "own AI provider (bring your own key). Limits: 5 requests per minute per user, optional "
+        "monthly call cap, "
+        "synchronous with a 90 second hard timeout. Audited as `AI_QUESTIONS_GENERATED` with counts, "
+        "provider and "
         "model only. Roles: HR, OA. Flag: `ai_question_builder`."
     ),
     responses={

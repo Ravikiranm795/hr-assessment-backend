@@ -23,4 +23,5 @@ ignore = ["S101"]
 [tool.ruff.lint.per-file-ignores]
 "app/**/router.py" = ["B008"]
 "app/core/deps.py" = ["B008"]
+"app/modules/m14_ai/prompts/*.py" = ["E501"]  # prompt text
 "tests/**" = ["E501"]  # long SQL/JSON literals in tests
