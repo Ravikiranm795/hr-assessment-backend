@@ -12,6 +12,7 @@ from typing import Any
 from sqlalchemy import text
 from uuid6 import uuid7
 
+from app.core import metrics
 from app.core.db import TenantContext
 
 # --- Auth
@@ -226,3 +227,6 @@ async def record(
             "request_id": ctx.request_id,
         },
     )
+    metrics.inc("audit_events_total", action=action)
+    if action == EXAM_STARTED:
+        metrics.inc("exam_starts_total")

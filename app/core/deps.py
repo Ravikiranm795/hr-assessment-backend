@@ -16,7 +16,7 @@ from fastapi.routing import APIRoute, iter_route_contexts
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core import flags
+from app.core import flags, logconfig
 from app.core.db import TenantContext, tenant_session
 from app.core.errors import AppError
 from app.core.openapi_meta import enrich
@@ -139,6 +139,7 @@ async def _authenticate(request: Request, *, allow_password_change: bool) -> Ten
         session_id=claims.sid,
     )
     request.state.ctx = ctx
+    logconfig.bind(org_id=ctx.org_id, user_id=ctx.user_id)
     return ctx
 
 
@@ -216,6 +217,7 @@ async def current_exam_ctx(request: Request) -> ExamContext:
         session_id=claims.sid,
     )
     request.state.ctx = ctx
+    logconfig.bind(org_id=ctx.org_id, user_id=ctx.user_id)
     return ExamContext(
         ctx=ctx, attempt_id=UUID(claims.sub), invite_id=UUID(claims.sid), binding=claims.binding
     )

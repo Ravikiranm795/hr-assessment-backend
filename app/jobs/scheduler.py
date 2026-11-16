@@ -12,6 +12,9 @@ from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.cron import CronTrigger
 from apscheduler.triggers.interval import IntervalTrigger
 
+from app.core import metrics
+from app.core.config import settings
+from app.core.logconfig import configure_logging
 from app.jobs import JOBS
 
 logger = logging.getLogger("app.jobs.scheduler")
@@ -35,9 +38,15 @@ async def run_logged(name: str) -> dict | None:
     try:
         result = await JOBS[name]()
     except Exception:  # noqa: BLE001 - keep the worker alive; the next tick retries
-        logger.exception("job %s failed", name)
+        metrics.inc("job_runs_total", job=name, outcome="error")
+        logger.exception("job %s failed", name, extra={"event": "job_run", "job": name, "outcome": "error"})
         return None
-    logger.info("job %s done in %.2fs: %s", name, time.monotonic() - started, result)
+    seconds = round(time.monotonic() - started, 2)
+    metrics.inc("job_runs_total", job=name, outcome="ok")
+    logger.info(
+        "job %s done in %.2fs: %s", name, seconds, result,
+        extra={"event": "job_run", "job": name, "outcome": "ok", "seconds": seconds},
+    )  # fmt: skip
     return result
 
 
@@ -65,5 +74,5 @@ async def run() -> None:
 
 
 if __name__ == "__main__":
-    logging.basicConfig(level=logging.INFO)
+    configure_logging(settings.log_level, settings.log_format)
     asyncio.run(run())

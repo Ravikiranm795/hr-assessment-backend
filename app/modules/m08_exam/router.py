@@ -10,7 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.config import settings
 from app.core.db import TenantContext, tenant_session
 from app.core.deps import ExamContext, public_ctx, public_db_session
-from app.core.errors import ERROR_CODES
+from app.core.errors import ERROR_CODES, AppError
 from app.core.ratelimit import rate_limit
 from app.modules.m08_exam.schemas import (
     AnswerIn,
@@ -212,6 +212,8 @@ async def snapshots(
     file: Annotated[UploadFile | None, File()] = None,
     event_id: Annotated[UUID | None, Form()] = None,
 ):
+    if file is not None and file.size is not None and file.size > settings.max_snapshot_kb * 1024:
+        raise AppError("UPLOAD_INVALID", 422, {"reason": "too_large"})  # MAX_SNAPSHOT_KB (spec: input limit)
     return SnapshotOut(event_id=await ExamService.snapshot(session, exam, file, event_id))
 
 

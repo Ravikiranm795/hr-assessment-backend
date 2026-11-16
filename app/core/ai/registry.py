@@ -8,6 +8,7 @@ lookup to a ``MockProvider`` with ``set_provider_override``.
 from collections.abc import Callable
 from dataclasses import dataclass
 
+from app.core import metrics
 from app.core.ai.base import LLMProvider
 from app.core.errors import AppError
 
@@ -46,10 +47,33 @@ def set_provider_override(provider: LLMProvider | None) -> None:
     _override = provider
 
 
+def _metered(provider: LLMProvider, label: str) -> LLMProvider:
+    """Count ``generate_json`` calls by outcome on this instance (once; ``isinstance`` still holds)."""
+    if getattr(provider, "_metered", False):
+        return provider
+    inner = provider.generate_json
+
+    async def generate_json(**kwargs):  # noqa: ANN003, ANN202 - same keyword-only signature as the protocol
+        try:
+            result = await inner(**kwargs)
+        except BaseException:
+            metrics.inc("ai_calls_total", provider=label, outcome="error")
+            raise
+        metrics.inc("ai_calls_total", provider=label, outcome="ok")
+        return result
+
+    try:
+        provider.generate_json = generate_json  # type: ignore[method-assign]
+        provider._metered = True  # type: ignore[attr-defined]
+    except AttributeError:  # slotted or frozen provider: leave it unmetered
+        pass
+    return provider
+
+
 def build_provider(config: ProviderConfig | None) -> LLMProvider:
     """Instantiate the configured provider. ``AI_NOT_CONFIGURED`` if missing or unknown."""
     if _override is not None:
-        return _override
+        return _metered(_override, "override")
     if config is None or config.provider not in _factories:
         raise AppError("AI_NOT_CONFIGURED")
-    return _factories[config.provider](config)
+    return _metered(_factories[config.provider](config), config.provider)

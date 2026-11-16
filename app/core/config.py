@@ -83,7 +83,7 @@ class Settings(BaseSettings):
 
     cors_origins: CommaList = ["http://localhost:3000"]
     cookie_domain: str = ""
-    # Secure flag of the refresh and exam-binding cookies. Unset: true in prod, false elsewhere (plain-http dev).
+    # Secure flag of the refresh and exam-binding cookies. Unset: true in prod, false elsewhere (http dev).
     cookie_secure: bool | None = None
     # Swagger UI, ReDoc and /openapi.json. Unset: on in dev/test, off in prod (export with `export-openapi`).
     enable_docs: bool | None = None
@@ -107,7 +107,7 @@ class Settings(BaseSettings):
     rate_limit_snapshot_max_per_attempt: int = 300
 
     log_level: str = "INFO"
-    demo_mode: bool = False
+    log_format: Literal["json", "text"] = "json"
 
     @field_validator("refresh_cookie_name")
     @classmethod

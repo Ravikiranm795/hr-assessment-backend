@@ -1,4 +1,3 @@
-import logging
 from types import ModuleType
 
 from fastapi import APIRouter, FastAPI
@@ -6,13 +5,19 @@ from fastapi.middleware.cors import CORSMiddleware
 
 import app.modules as modules_package
 from app import __version__
-from app.core import health
+from app.core import health, metrics_router
 from app.core.autoload import load_submodules
 from app.core.config import Settings
 from app.core.config import settings as default_settings
 from app.core.deps import install_openapi_extensions
 from app.core.errors import install_error_handlers
-from app.core.middleware import REQUEST_ID_HEADER, RequestIDMiddleware, SecurityHeadersMiddleware
+from app.core.logconfig import configure_logging
+from app.core.middleware import (
+    REQUEST_ID_HEADER,
+    AccessLogMiddleware,
+    RequestIDMiddleware,
+    SecurityHeadersMiddleware,
+)
 from app.core.storage import router as files
 
 
@@ -23,7 +28,7 @@ def discover_routers(package: ModuleType = modules_package) -> list[APIRouter]:
 
 def create_app(app_settings: Settings | None = None) -> FastAPI:
     cfg = app_settings or default_settings
-    logging.basicConfig(level=cfg.log_level.upper())
+    configure_logging(cfg.log_level, cfg.log_format)
 
     docs = bool(cfg.enable_docs)
     api = FastAPI(
@@ -42,12 +47,14 @@ def create_app(app_settings: Settings | None = None) -> FastAPI:
         expose_headers=[REQUEST_ID_HEADER],
     )
     api.add_middleware(SecurityHeadersMiddleware)
+    api.add_middleware(AccessLogMiddleware)
     # Added last so it is outermost: the header is set on CORS preflights and errors too.
     api.add_middleware(RequestIDMiddleware)
 
     install_error_handlers(api)
 
     api.include_router(health.router)
+    api.include_router(metrics_router.router)
     api.include_router(files.router)
     for router in discover_routers():
         api.include_router(router)
