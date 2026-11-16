@@ -33,8 +33,14 @@ async def test_create_list_update_and_account_controls(client, db_session, world
     assert row.password_hash.startswith("$argon2id$") and security.verify_password(row.password_hash, temp)
 
     # shown once: not in reads, not in audit
-    assert temp not in (await client.get(TEAM, headers=h)).text + (await client.get(f"{TEAM}/{uid}", headers=h)).text
-    assert await scalar("select count(*) from audit_logs where coalesce(after::text,'') like :p", p=f"%{temp}%") == 0
+    assert (
+        temp
+        not in (await client.get(TEAM, headers=h)).text + (await client.get(f"{TEAM}/{uid}", headers=h)).text
+    )
+    assert (
+        await scalar("select count(*) from audit_logs where coalesce(after::text,'') like :p", p=f"%{temp}%")
+        == 0
+    )
     dup = await client.post(TEAM, json={"name": "Dup", "email": "HANA@example.com"}, headers=h)
     assert dup.status_code == 409 and dup.json()["error"]["code"] == "CONFLICT"
 
@@ -48,11 +54,16 @@ async def test_create_list_update_and_account_controls(client, db_session, world
     await db_session.execute(text("update users set last_login_at = now() where id = :i"), {"i": uid})
     await db_session.commit()
     r = await client.patch(f"{TEAM}/{uid}", json={"email": "again@example.com"}, headers=h)
-    assert r.status_code == 422 and r.json()["error"]["details"]["fields"][0]["code"] == "not_editable_after_login"
+    assert (
+        r.status_code == 422
+        and r.json()["error"]["details"]["fields"][0]["code"] == "not_editable_after_login"
+    )
 
     # reset-password and sign-out-everywhere kill tokens; unlock clears the lockout
     await db_session.execute(
-        text("update users set failed_login_count = 5, locked_until = now() + interval '15 min' where id = :i"),
+        text(
+            "update users set failed_login_count = 5, locked_until = now() + interval '15 min' where id = :i"
+        ),
         {"i": uid},
     )
     await db_session.commit()
@@ -60,7 +71,11 @@ async def test_create_list_update_and_account_controls(client, db_session, world
     r = await client.post(f"{TEAM}/{uid}/reset-password", headers=h)
     new_temp = r.json()["temporary_password"]
     row = await user_row(db_session, uid)
-    assert security.verify_password(row.password_hash, new_temp) and row.must_change_password and row.token_version == 1
+    assert (
+        security.verify_password(row.password_hash, new_temp)
+        and row.must_change_password
+        and row.token_version == 1
+    )
     await client.post(f"{TEAM}/{uid}/sign-out-everywhere", headers=h)
     assert (await user_row(db_session, uid)).token_version == 2
     names = await audit_actions(org.id)
@@ -72,7 +87,9 @@ async def test_create_list_update_and_account_controls(client, db_session, world
         "AUTH_SIGNED_OUT_EVERYWHERE",
     ):
         assert expected in names
-    assert new_temp not in str(await scalar("select string_agg(coalesce(after::text,''), ' ') from audit_logs"))
+    assert new_temp not in str(
+        await scalar("select string_agg(coalesce(after::text,''), ' ') from audit_logs")
+    )
 
 
 async def test_deactivate_reactivate_never_deletes_and_kills_tokens(client, db_session, world, hdr, scalar):
@@ -99,8 +116,15 @@ async def test_oa_cannot_create_or_modify_oa_ADMIN_ONLY_ACTION(client, db_sessio
         return r.status_code == 403 and r.json()["error"]["code"] == "ADMIN_ONLY_ACTION"
 
     for role in ("org_admin", "super_admin"):
-        assert denied(await client.post(TEAM, json={"name": "B", "email": f"{role}@example.com", "role": role}, headers=h))
-    assert await db_session.scalar(text("select count(*) from users where email like '%_admin@example.com'")) == 0
+        assert denied(
+            await client.post(
+                TEAM, json={"name": "B", "email": f"{role}@example.com", "role": role}, headers=h
+            )
+        )
+    assert (
+        await db_session.scalar(text("select count(*) from users where email like '%_admin@example.com'"))
+        == 0
+    )
     assert denied(await client.patch(f"{TEAM}/{hr.id}", json={"role": "org_admin"}, headers=h))  # promotion
     assert (await user_row(db_session, hr.id)).role == "hr_user"
     for target in (peer, world.oa):  # no modification of any admin, including oneself
@@ -113,7 +137,12 @@ async def test_oa_cannot_create_or_modify_oa_ADMIN_ONLY_ACTION(client, db_sessio
             ("POST", "/sign-out-everywhere", None),
         ]
         for method, suffix, body in calls:
-            r = await client.request(method, f"{TEAM}/{target.id}{suffix}", headers=h, **({"json": body} if body is not None else {}))
+            r = await client.request(
+                method,
+                f"{TEAM}/{target.id}{suffix}",
+                headers=h,
+                **({"json": body} if body is not None else {}),
+            )
             assert denied(r), (method, suffix)
     row = await user_row(db_session, peer.id)
     assert row.status == "active" and row.name != "Changed" and row.token_version == 0
@@ -150,22 +179,32 @@ async def test_deactivate_marks_owned_roles_owner_inactive(client, db_session, w
     out = (await client.post(f"{TEAM}/{hr.id}/deactivate", json={}, headers=h)).json()
     assert out["reassigned_roles"] == 0 and {x["id"] for x in out["owned_roles"]} == {str(r1.id), str(r2.id)}
     assert all(x["owner_inactive"] for x in out["owned_roles"])  # still owned, marked until reassigned
-    owners = (await db_session.execute(text("select owner_id from open_roles where id in (:a, :b)"), {"a": r1.id, "b": r2.id})).all()
+    owners = (
+        await db_session.execute(
+            text("select owner_id from open_roles where id in (:a, :b)"), {"a": r1.id, "b": r2.id}
+        )
+    ).all()
     assert {o[0] for o in owners} == {hr.id}
     back = (await client.post(f"{TEAM}/{hr.id}/reactivate", headers=h)).json()
     assert not any(x["owner_inactive"] for x in back["owned_roles"])
 
 
-async def test_deactivate_reassigns_roles_and_validates_new_owner(client, db_session, world, audit_actions, scalar):
+async def test_deactivate_reassigns_roles_and_validates_new_owner(
+    client, db_session, world, audit_actions, scalar
+):
     hr = await make_user(db_session, "hr_user", world.org)
     heir = await make_user(db_session, "hr_user", world.org)
     gone = await make_user(db_session, "hr_user", world.org, status="inactive")
     role = await make_role(db_session, world.org, hr)
     await db_session.commit()
     for target in (hr.id, gone.id):  # not to oneself, not to an inactive user
-        r = await client.post(f"{TEAM}/{hr.id}/deactivate", json={"reassign_roles_to": str(target)}, headers=world.h)
+        r = await client.post(
+            f"{TEAM}/{hr.id}/deactivate", json={"reassign_roles_to": str(target)}, headers=world.h
+        )
         assert r.status_code == 422 and r.json()["error"]["code"] == "VALIDATION_ERROR"
-    r = await client.post(f"{TEAM}/{hr.id}/deactivate", json={"reassign_roles_to": str(heir.id)}, headers=world.h)
+    r = await client.post(
+        f"{TEAM}/{hr.id}/deactivate", json={"reassign_roles_to": str(heir.id)}, headers=world.h
+    )
     assert r.status_code == 200 and r.json()["reassigned_roles"] == 1 and r.json()["owned_roles"] == []
     assert await scalar("select owner_id from open_roles where id = :i", i=role.id) == heir.id
     assert "ROLE_REASSIGNED" in await audit_actions(world.org.id)
@@ -178,10 +217,15 @@ async def test_reassign_roles_to_user_in_other_org_is_404(client, db_session, wo
     foreign = await make_user(db_session, "hr_user", await make_org(db_session))
     await db_session.commit()
     for target in (foreign.id, uuid.uuid4()):
-        r = await client.post(f"{TEAM}/{hr.id}/deactivate", json={"reassign_roles_to": str(target)}, headers=world.h)
+        r = await client.post(
+            f"{TEAM}/{hr.id}/deactivate", json={"reassign_roles_to": str(target)}, headers=world.h
+        )
         assert r.status_code == 404 and r.json()["error"]["code"] == "NOT_FOUND"
     assert (await user_row(db_session, hr.id)).status == "active"
-    assert await db_session.scalar(text("select owner_id from open_roles where id = :i"), {"i": role.id}) == hr.id
+    assert (
+        await db_session.scalar(text("select owner_id from open_roles where id = :i"), {"i": role.id})
+        == hr.id
+    )
 
 
 TEAM_ROUTES = [
@@ -208,7 +252,11 @@ async def test_team_permission_matrix(client, db_session, hdr, method, suffix):
     target = await make_user(db_session, "hr_user", org, status=status)
     foreign = await make_user(db_session, "hr_user", await make_org(db_session), status=status)
     url = TEAM + suffix.format(u=target.id)
-    body = {"name": "Matrix", "email": f"m{uuid.uuid4().hex[:8]}@example.com"} if (method, suffix) == ("POST", "") else {}
+    body = (
+        {"name": "Matrix", "email": f"m{uuid.uuid4().hex[:8]}@example.com"}
+        if (method, suffix) == ("POST", "")
+        else {}
+    )
 
     assert (await client.request(method, url, json=body)).status_code == 401
     for user in (hr, sa):

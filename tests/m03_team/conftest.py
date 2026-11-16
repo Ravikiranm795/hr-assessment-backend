@@ -58,7 +58,9 @@ def scalar(db_session):
 @pytest.fixture
 def audit_actions(db_session):
     async def _actions(org_id):
-        rows = await db_session.execute(text("select action from audit_logs where org_id = :o"), {"o": org_id})
+        rows = await db_session.execute(
+            text("select action from audit_logs where org_id = :o"), {"o": org_id}
+        )
         return [r[0] for r in rows]
 
     return _actions

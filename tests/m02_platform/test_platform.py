@@ -57,7 +57,7 @@ async def test_create_org_seeds_flags_theme_and_returns_temp_password_once(clien
 
     r = await client.post(
         f"{BASE}/orgs",
-        json={"name": "Acme Corp", "admin": {"name": "Ada Admin", "email": "Ada@Acme.test "}},
+        json={"name": "Acme Corp", "admin": {"name": "Ada Admin", "email": "Ada@Acme.example.com "}},
         headers=h,
     )
     assert r.status_code == 201, r.text
@@ -65,14 +65,18 @@ async def test_create_org_seeds_flags_theme_and_returns_temp_password_once(clien
     temp = body["temporary_password"]
     assert len(temp) >= 12
     assert body["admin"]["role"] == "org_admin"
-    assert body["admin"]["email"] == "ada@acme.test"
+    assert body["admin"]["email"] == "ada@acme.example.com"
     assert body["admin"]["must_change_password"] is True
     assert body["organization"]["status"] == "active"
     org_id = body["organization"]["id"]
 
     # flags seeded from the defaults, one explicit row per catalog key
     got = dict(
-        (await db_session.execute(text("select flag_key, enabled from org_feature_flags where org_id = :o"), {"o": org_id})).all()
+        (
+            await db_session.execute(
+                text("select flag_key, enabled from org_feature_flags where org_id = :o"), {"o": org_id}
+            )
+        ).all()
     )
     assert set(got) == set(flags.FLAG_KEYS)
     assert got["reports_chat"] is False and got["team"] is True
@@ -98,7 +102,9 @@ async def test_create_org_seeds_flags_theme_and_returns_temp_password_once(clien
     # first org admin: Argon2id hash of the temp password, forced password change
     admin_row = (
         await db_session.execute(
-            text("select password_hash, must_change_password, role, org_id from users where email = 'ada@acme.test'")
+            text(
+                "select password_hash, must_change_password, role, org_id from users where email = 'ada@acme.example.com'"
+            )
         )
     ).one()
     assert admin_row.password_hash.startswith("$argon2id$")
@@ -131,7 +137,7 @@ async def test_create_org_conflicts_and_validation(client, db_session):
     org = await make_org(db_session, slug="taken")
     taken = await make_user(db_session, "hr_user", org, email="used@example.com")
     await db_session.commit()
-    payload = {"name": "Dup", "slug": "taken", "admin": {"name": "A", "email": "a@dup.test"}}
+    payload = {"name": "Dup", "slug": "taken", "admin": {"name": "A", "email": "a@dup.example.com"}}
     r = await client.post(f"{BASE}/orgs", json=payload, headers=h)
     assert r.status_code == 409 and r.json()["error"]["code"] == "CONFLICT"
     payload = {"name": "Dup2", "admin": {"name": "A", "email": taken.email}}
@@ -139,7 +145,9 @@ async def test_create_org_conflicts_and_validation(client, db_session):
     assert r.status_code == 409 and r.json()["error"]["details"]["field"] == "email"
     # the failed attempt left no organization behind
     assert await scalar(db_session, "select count(*) from organizations where name = 'Dup2'") == 0
-    r = await client.post(f"{BASE}/orgs", json={"name": " ", "admin": {"name": "A", "email": "nope"}}, headers=h)
+    r = await client.post(
+        f"{BASE}/orgs", json={"name": " ", "admin": {"name": "A", "email": "nope"}}, headers=h
+    )
     assert r.status_code == 422 and r.json()["error"]["code"] == "VALIDATION_ERROR"
 
 
@@ -195,14 +203,17 @@ async def test_overview_counts_without_candidate_content(client, db_session):
     role = await make_role(db_session, org, hr)
     invite = await make_invite(db_session, org, role)
     await make_attempt(db_session, invite, status="submitted")
-    db_session.add(AiUsageLog(org_id=org.id, user_id=hr.id, feature="question_gen", provider="p", model="m", status="ok"))
+    db_session.add(
+        AiUsageLog(org_id=org.id, user_id=hr.id, feature="question_gen", provider="p", model="m", status="ok")
+    )
     await db_session.commit()
     del oa
 
     r = await client.get(f"{BASE}/orgs/{org.id}/overview", headers=h)
     assert r.status_code == 200
     body = r.json()
-    assert body["users"] == {"total": 3, "active": 2, "inactive": 1, "org_admins": 1, "hr_users": 2}
+    # make_invite creates an assessment owned by one more HR user.
+    assert body["users"] == {"total": 4, "active": 3, "inactive": 1, "org_admins": 1, "hr_users": 3}
     assert body["open_roles"] == 1 and body["roles_total"] == 1
     assert body["invites"]["total"] == 1 and body["invites"]["submitted"] == 1
     assert body["attempts"] == {"total": 1, "submitted": 1}
@@ -242,7 +253,9 @@ async def test_create_admin_returns_temp_password_once_and_rejects_duplicates(cl
     await make_user(db_session, "org_admin", org, email="first@example.com")
     await db_session.commit()
 
-    r = await client.post(f"{BASE}/orgs/{org.id}/admins", json={"name": "Second", "email": "second@example.com"}, headers=h)
+    r = await client.post(
+        f"{BASE}/orgs/{org.id}/admins", json={"name": "Second", "email": "second@example.com"}, headers=h
+    )
     assert r.status_code == 201
     body = r.json()
     assert body["user"]["role"] == "org_admin" and body["user"]["org_id"] == str(org.id)
@@ -250,9 +263,15 @@ async def test_create_admin_returns_temp_password_once_and_rejects_duplicates(cl
         await scalar(db_session, "select password_hash from users where email = 'second@example.com'"),
         body["temporary_password"],
     )
-    dup = await client.post(f"{BASE}/orgs/{org.id}/admins", json={"name": "Again", "email": "SECOND@example.com"}, headers=h)
+    dup = await client.post(
+        f"{BASE}/orgs/{org.id}/admins", json={"name": "Again", "email": "SECOND@example.com"}, headers=h
+    )
     assert dup.status_code == 409
-    assert (await client.post(f"{BASE}/orgs/{uuid.uuid4()}/admins", json={"name": "X", "email": "x@example.com"}, headers=h)).status_code == 404
+    assert (
+        await client.post(
+            f"{BASE}/orgs/{uuid.uuid4()}/admins", json={"name": "X", "email": "x@example.com"}, headers=h
+        )
+    ).status_code == 404
     assert "ORG_ADMIN_CREATED" in await audit_actions(db_session, org.id)
 
 
@@ -267,7 +286,9 @@ async def test_last_admin_deactivation_blocked_unless_sa_confirms(client, db_ses
     assert await scalar(db_session, "select status from users where id = :i", i=oa.id) == "active"
 
     r = await client.post(
-        f"{BASE}/users/{oa.id}/deactivate", json={"confirm_last_admin": True, "reason": "contract ended"}, headers=h
+        f"{BASE}/users/{oa.id}/deactivate",
+        json={"confirm_last_admin": True, "reason": "contract ended"},
+        headers=h,
     )
     assert r.status_code == 200 and r.json()["status"] == "inactive"
     # the deactivated admin's token dies with the token-version bump
@@ -300,7 +321,9 @@ async def test_platform_user_endpoints_only_target_org_admins(client, db_session
         for action in ("deactivate", "reactivate", "reset-password", "unlock"):
             r = await client.post(f"{BASE}/users/{target.id}/{action}", json={}, headers=h)
             assert r.status_code == 403 and r.json()["error"]["code"] == "FORBIDDEN", (target.role, action)
-    assert (await client.post(f"{BASE}/users/{uuid.uuid4()}/deactivate", json={}, headers=h)).status_code == 404
+    assert (
+        await client.post(f"{BASE}/users/{uuid.uuid4()}/deactivate", json={}, headers=h)
+    ).status_code == 404
 
 
 async def test_default_sa_untargetable_by_any_endpoint(client, db_session):
@@ -332,7 +355,9 @@ async def test_default_sa_untargetable_by_any_endpoint(client, db_session):
     # not listed anywhere an org admin or the platform lists users
     assert default_sa.email not in (await client.get(team, headers=oa_h)).text
     assert default_sa.email not in (await client.get(f"{BASE}/orgs/{org.id}/users", headers=h)).text
-    row = (await db_session.execute(text("select status, name from users where id = :i"), {"i": default_sa.id})).one()
+    row = (
+        await db_session.execute(text("select status, name from users where id = :i"), {"i": default_sa.id})
+    ).one()
     assert row.status == "active" and row.name != "Hacked"
 
 
@@ -346,19 +371,30 @@ async def test_sa_reset_password_and_unlock_admin(client, db_session):
 
     r = await client.post(f"{BASE}/users/{oa.id}/unlock", headers=h)
     assert r.status_code == 200 and r.json()["is_locked"] is False
-    row = (await db_session.execute(text("select failed_login_count, locked_until from users where id = :i"), {"i": oa.id})).one()
+    row = (
+        await db_session.execute(
+            text("select failed_login_count, locked_until from users where id = :i"), {"i": oa.id}
+        )
+    ).one()
     assert row.failed_login_count == 0 and row.locked_until is None
 
     r = await client.post(f"{BASE}/users/{oa.id}/reset-password", headers=h)
     assert r.status_code == 200
     temp = r.json()["temporary_password"]
-    row = (await db_session.execute(text("select password_hash, must_change_password, token_version from users where id = :i"), {"i": oa.id})).one()
+    row = (
+        await db_session.execute(
+            text("select password_hash, must_change_password, token_version from users where id = :i"),
+            {"i": oa.id},
+        )
+    ).one()
     assert security.verify_password(row.password_hash, temp) and row.must_change_password is True
     assert row.token_version == 1
     assert (await client.get("/api/v1/team/users", headers=oa_h)).status_code == 401
     actions = await audit_actions(db_session, org.id)
     assert "AUTH_ACCOUNT_UNLOCKED" in actions and "AUTH_TEMP_PASSWORD_ISSUED" in actions
-    assert temp not in str(await scalar(db_session, "select string_agg(coalesce(after::text,''), ' ') from audit_logs"))
+    assert temp not in str(
+        await scalar(db_session, "select string_agg(coalesce(after::text,''), ' ') from audit_logs")
+    )
 
 
 # --------------------------------------------------------------------------- feature flags
@@ -376,7 +412,9 @@ async def test_flag_catalog_and_org_flag_bulk_set_audited(client, db_session):
     assert next(f for f in cat["items"] if f["key"] == "invites")["depends_on"] == ["roles", "assessments"]
 
     r = await client.put(
-        f"{BASE}/orgs/{org.id}/features", json={"flags": {"watermark": False, "roles": False}, "reason": "demo"}, headers=h
+        f"{BASE}/orgs/{org.id}/features",
+        json={"flags": {"watermark": False, "roles": False}, "reason": "demo"},
+        headers=h,
     )
     assert r.status_code == 200
     flags_out = r.json()["flags"]
@@ -385,17 +423,25 @@ async def test_flag_catalog_and_org_flag_bulk_set_audited(client, db_session):
     assert flags_out["invites"]["enabled"] is True and flags_out["invites"]["effective"] is False
     changed = (
         await db_session.execute(
-            text("select entity_id, reason, actor_name_snapshot from audit_logs where action = 'FEATURE_FLAG_CHANGED' order by entity_id")
+            text(
+                "select entity_id, reason, actor_name_snapshot from audit_logs where action = 'FEATURE_FLAG_CHANGED' order by entity_id"
+            )
         )
     ).all()
-    assert [c.entity_id for c in changed] == ["roles", "watermark"] and {c.reason for c in changed} == {"demo"}
+    assert [c.entity_id for c in changed] == ["roles", "watermark"] and {c.reason for c in changed} == {
+        "demo"
+    }
     assert all(c.actor_name_snapshot for c in changed)
 
     # unchanged values write no audit rows; unknown keys are rejected
     n = len(changed)
     await client.put(f"{BASE}/orgs/{org.id}/features", json={"flags": {"watermark": False}}, headers=h)
-    assert await scalar(db_session, "select count(*) from audit_logs where action = 'FEATURE_FLAG_CHANGED'") == n
-    bad = await client.put(f"{BASE}/orgs/{org.id}/features", json={"flags": {"no_such_flag": True}}, headers=h)
+    assert (
+        await scalar(db_session, "select count(*) from audit_logs where action = 'FEATURE_FLAG_CHANGED'") == n
+    )
+    bad = await client.put(
+        f"{BASE}/orgs/{org.id}/features", json={"flags": {"no_such_flag": True}}, headers=h
+    )
     assert bad.status_code == 422 and bad.json()["error"]["code"] == "VALIDATION_ERROR"
     assert (await client.get(f"{BASE}/orgs/{uuid.uuid4()}/features", headers=h)).status_code == 404
 
@@ -404,11 +450,23 @@ async def test_feature_defaults_apply_to_new_orgs_only(client, db_session):
     h = await sa_headers(db_session)
     legacy = await make_org(db_session)  # no override rows: would follow the catalog default
     await db_session.commit()
-    r = await client.put(f"{BASE}/features/defaults", json={"defaults": {"audit_export": False}, "reason": "phase"}, headers=h)
+    r = await client.put(
+        f"{BASE}/features/defaults", json={"defaults": {"audit_export": False}, "reason": "phase"}, headers=h
+    )
     assert r.status_code == 200 and r.json()["defaults"]["audit_export"] is False
-    assert (await client.get(f"{BASE}/features/defaults", headers=h)).json()["defaults"]["audit_export"] is False
-    assert (await client.get(f"{BASE}/orgs/{legacy.id}/features", headers=h)).json()["flags"]["audit_export"]["effective"] is True
-    assert await scalar(db_session, "select count(*) from audit_logs where action = 'FEATURE_DEFAULTS_CHANGED' and org_id is null") == 1
+    assert (await client.get(f"{BASE}/features/defaults", headers=h)).json()["defaults"][
+        "audit_export"
+    ] is False
+    assert (await client.get(f"{BASE}/orgs/{legacy.id}/features", headers=h)).json()["flags"]["audit_export"][
+        "effective"
+    ] is True
+    assert (
+        await scalar(
+            db_session,
+            "select count(*) from audit_logs where action = 'FEATURE_DEFAULTS_CHANGED' and org_id is null",
+        )
+        == 1
+    )
     bad = await client.put(f"{BASE}/features/defaults", json={"defaults": {"nope": True}}, headers=h)
     assert bad.status_code == 422
     await client.put(f"{BASE}/features/defaults", json={"defaults": {"audit_export": True}}, headers=h)
@@ -423,10 +481,16 @@ async def test_flag_off_returns_FEATURE_DISABLED_and_data_kept(client, db_sessio
     users_before = await scalar(db_session, "select count(*) from users where org_id = :o", o=org.id)
 
     assert (await client.get("/api/v1/team/users", headers=oa_h)).status_code == 200
-    r = await client.put(f"{BASE}/orgs/{org.id}/features", json={"flags": {"team": False}, "reason": "billing"}, headers=h)
+    r = await client.put(
+        f"{BASE}/orgs/{org.id}/features", json={"flags": {"team": False}, "reason": "billing"}, headers=h
+    )
     assert r.status_code == 200 and r.json()["flags"]["team"]["effective"] is False
 
-    for method, path in (("GET", "/api/v1/team/users"), ("POST", f"/api/v1/team/users/{hr.id}/unlock"), ("GET", f"/api/v1/team/users/{hr.id}")):
+    for method, path in (
+        ("GET", "/api/v1/team/users"),
+        ("POST", f"/api/v1/team/users/{hr.id}/unlock"),
+        ("GET", f"/api/v1/team/users/{hr.id}"),
+    ):
         blocked = await client.request(method, path, headers=oa_h)
         assert blocked.status_code == 403, path
         assert blocked.json()["error"]["code"] == "FEATURE_DISABLED"
@@ -441,7 +505,9 @@ async def test_flag_off_returns_FEATURE_DISABLED_and_data_kept(client, db_sessio
     back = await client.get("/api/v1/team/users", headers=oa_h)
     assert back.status_code == 200 and back.json()["total"] == users_before
     # an org admin cannot flip flags
-    forbidden = await client.put(f"{BASE}/orgs/{org.id}/features", json={"flags": {"team": True}}, headers=oa_h)
+    forbidden = await client.put(
+        f"{BASE}/orgs/{org.id}/features", json={"flags": {"team": True}}, headers=oa_h
+    )
     assert forbidden.status_code == 403 and forbidden.json()["error"]["code"] == "FORBIDDEN"
 
 
@@ -464,19 +530,28 @@ async def test_misuse_flag_raise_requires_comment_and_notifies_oa(client, db_ses
         assert r.status_code == 422 and r.json()["error"]["code"] == "VALIDATION_ERROR", body
     assert await scalar(db_session, "select count(*) from misuse_flags") == 0
 
-    r = await client.post(url, json={"comment": "Shared candidate links publicly", "user_id": str(hr.id)}, headers=h)
+    r = await client.post(
+        url, json={"comment": "Shared candidate links publicly", "user_id": str(hr.id)}, headers=h
+    )
     assert r.status_code == 201, r.text
     flag = r.json()
     assert flag["status"] == "open" and flag["comment"] == "Shared candidate links publicly"
     assert flag["user_id"] == str(hr.id)
 
     notes = (
-        await db_session.execute(text("select user_id, type, payload, entity_id from notifications where org_id = :o"), {"o": org.id})
+        await db_session.execute(
+            text("select user_id, type, payload, entity_id from notifications where org_id = :o"),
+            {"o": org.id},
+        )
     ).all()
     assert {n.user_id for n in notes} == {oa1.id, oa2.id}  # active org admins only
     assert all(n.type == "misuse_flag_raised" and str(n.entity_id) == flag["id"] for n in notes)
     assert notes[0].payload["comment"] == "Shared candidate links publicly"
-    audit = (await db_session.execute(text("select reason, actor_name_snapshot from audit_logs where action = 'MISUSE_FLAG_RAISED'"))).one()
+    audit = (
+        await db_session.execute(
+            text("select reason, actor_name_snapshot from audit_logs where action = 'MISUSE_FLAG_RAISED'")
+        )
+    ).one()
     assert audit.reason == "Shared candidate links publicly"
 
     # a user from another organization is a 404, not a flag
@@ -492,26 +567,50 @@ async def test_misuse_clear_requires_closing_note(client, db_session):
     org = await make_org(db_session)
     oa = await make_user(db_session, "org_admin", org)
     oa_h = await headers_for(db_session, oa)
-    created = await client.post(f"{BASE}/orgs/{org.id}/misuse-flags", json={"comment": "Suspicious export volume"}, headers=h)
+    created = await client.post(
+        f"{BASE}/orgs/{org.id}/misuse-flags", json={"comment": "Suspicious export volume"}, headers=h
+    )
     fid = created.json()["id"]
 
     for body in ({}, {"closing_note": ""}, {"closing_note": "  "}):
         r = await client.post(f"{BASE}/misuse-flags/{fid}/clear", json=body, headers=h)
         assert r.status_code == 422 and r.json()["error"]["code"] == "VALIDATION_ERROR", body
-    assert await scalar(db_session, "select status from misuse_flags where id = :i", i=uuid.UUID(fid)) == "open"
+    assert (
+        await scalar(db_session, "select status from misuse_flags where id = :i", i=uuid.UUID(fid)) == "open"
+    )
     # the org admin cannot clear their own flag
-    assert (await client.post(f"{BASE}/misuse-flags/{fid}/clear", json={"closing_note": "ok"}, headers=oa_h)).status_code == 403
+    assert (
+        await client.post(f"{BASE}/misuse-flags/{fid}/clear", json={"closing_note": "ok"}, headers=oa_h)
+    ).status_code == 403
 
-    r = await client.post(f"{BASE}/misuse-flags/{fid}/clear", json={"closing_note": "Resolved by email on 17 Nov"}, headers=h)
+    r = await client.post(
+        f"{BASE}/misuse-flags/{fid}/clear", json={"closing_note": "Resolved by email on 17 Nov"}, headers=h
+    )
     assert r.status_code == 200
     out = r.json()
-    assert out["status"] == "cleared" and out["closing_note"] == "Resolved by email on 17 Nov" and out["cleared_at"]
-    types = [row[0] for row in (await db_session.execute(text("select type from notifications where user_id = :u order by created_at"), {"u": oa.id})).all()]
+    assert (
+        out["status"] == "cleared"
+        and out["closing_note"] == "Resolved by email on 17 Nov"
+        and out["cleared_at"]
+    )
+    types = [
+        row[0]
+        for row in (
+            await db_session.execute(
+                text("select type from notifications where user_id = :u order by created_at"), {"u": oa.id}
+            )
+        ).all()
+    ]
     assert types == ["misuse_flag_raised", "misuse_flag_cleared"]
-    assert await scalar(db_session, "select reason from audit_logs where action = 'MISUSE_FLAG_CLEARED'") == "Resolved by email on 17 Nov"
+    assert (
+        await scalar(db_session, "select reason from audit_logs where action = 'MISUSE_FLAG_CLEARED'")
+        == "Resolved by email on 17 Nov"
+    )
     again = await client.post(f"{BASE}/misuse-flags/{fid}/clear", json={"closing_note": "again"}, headers=h)
     assert again.status_code == 409
-    assert (await client.post(f"{BASE}/misuse-flags/{uuid.uuid4()}/clear", json={"closing_note": "x"}, headers=h)).status_code == 404
+    assert (
+        await client.post(f"{BASE}/misuse-flags/{uuid.uuid4()}/clear", json={"closing_note": "x"}, headers=h)
+    ).status_code == 404
 
 
 # --------------------------------------------------------------------------- branding, usage
@@ -519,34 +618,75 @@ async def test_misuse_clear_requires_closing_note(client, db_session):
 
 async def test_platform_branding_isolated_from_org_theme(client, db_session):
     h = await sa_headers(db_session)
-    r = await client.post(f"{BASE}/orgs", json={"name": "Iso Org", "admin": {"name": "A", "email": "iso@org.test"}}, headers=h)
+    r = await client.post(
+        f"{BASE}/orgs",
+        json={"name": "Iso Org", "admin": {"name": "A", "email": "iso@org.example.com"}},
+        headers=h,
+    )
     org_id = r.json()["organization"]["id"]
 
     first = (await client.get(f"{BASE}/branding", headers=h)).json()
     assert first["scope"] == "platform" and first["primary_color"] == STARTER_THEME["primary"]
 
-    new = {"primary_color": "#112233", "accent_color": "#AA3300", "background_style": "plain_white", "font_key": "lato"}
+    new = {
+        "primary_color": "#112233",
+        "accent_color": "#AA3300",
+        "background_style": "plain_white",
+        "font_key": "lato",
+    }
     r = await client.put(f"{BASE}/branding", json=new, headers=h)
     assert r.status_code == 200 and r.json()["primary_color"] == "#112233" and r.json()["scope"] == "platform"
 
     org_theme = (
-        await db_session.execute(text("select primary_color, accent_color, background_style, font_key from branding_themes where org_id = :o"), {"o": org_id})
+        await db_session.execute(
+            text(
+                "select primary_color, accent_color, background_style, font_key from branding_themes where org_id = :o"
+            ),
+            {"o": org_id},
+        )
     ).one()
-    assert tuple(org_theme) == (STARTER_THEME["primary"], STARTER_THEME["accent"], STARTER_THEME["background_style"], STARTER_THEME["font_key"])
-    assert await scalar(db_session, "select count(*) from branding_themes where scope = 'platform' and org_id is null") == 1
+    assert tuple(org_theme) == (
+        STARTER_THEME["primary"],
+        STARTER_THEME["accent"],
+        STARTER_THEME["background_style"],
+        STARTER_THEME["font_key"],
+    )
+    assert (
+        await scalar(
+            db_session, "select count(*) from branding_themes where scope = 'platform' and org_id is null"
+        )
+        == 1
+    )
 
     # and the other way round: an org theme edit never reaches the platform theme
-    await db_session.execute(text("update branding_themes set primary_color = '#FF0000' where org_id = :o"), {"o": org_id})
+    await db_session.execute(
+        text("update branding_themes set primary_color = '#FF0000' where org_id = :o"), {"o": org_id}
+    )
     await db_session.commit()
     assert (await client.get(f"{BASE}/branding", headers=h)).json()["primary_color"] == "#112233"
 
-    for bad in ({**new, "primary_color": "red"}, {**new, "font_key": "comic_sans"}, {**new, "background_style": "neon"}):
+    for bad in (
+        {**new, "primary_color": "red"},
+        {**new, "font_key": "comic_sans"},
+        {**new, "background_style": "neon"},
+    ):
         assert (await client.put(f"{BASE}/branding", json=bad, headers=h)).status_code == 422
 
     r = await client.post(f"{BASE}/branding/reset", headers=h)
     assert r.status_code == 200 and r.json()["primary_color"] == STARTER_THEME["primary"]
-    assert await scalar(db_session, "select primary_color from branding_themes where org_id = :o", o=uuid.UUID(org_id)) == "#FF0000"
-    assert await scalar(db_session, "select count(*) from audit_logs where action = 'PLATFORM_BRANDING_UPDATED' and org_id is null") == 2
+    assert (
+        await scalar(
+            db_session, "select primary_color from branding_themes where org_id = :o", o=uuid.UUID(org_id)
+        )
+        == "#FF0000"
+    )
+    assert (
+        await scalar(
+            db_session,
+            "select count(*) from audit_logs where action = 'PLATFORM_BRANDING_UPDATED' and org_id is null",
+        )
+        == 2
+    )
 
 
 async def test_usage_counts_ai_calls_per_org(client, db_session):
@@ -555,7 +695,18 @@ async def test_usage_counts_ai_calls_per_org(client, db_session):
     quiet = await make_org(db_session, name="Quiet")
     user = await make_user(db_session, "hr_user", busy)
     for feature in ("question_gen", "question_gen", "scoring"):
-        db_session.add(AiUsageLog(org_id=busy.id, user_id=user.id, feature=feature, provider="p", model="m", status="ok", tokens_in=10, tokens_out=5))
+        db_session.add(
+            AiUsageLog(
+                org_id=busy.id,
+                user_id=user.id,
+                feature=feature,
+                provider="p",
+                model="m",
+                status="ok",
+                tokens_in=10,
+                tokens_out=5,
+            )
+        )
     await db_session.commit()
     r = await client.get(f"{BASE}/usage", headers=h)
     assert r.status_code == 200
@@ -563,7 +714,9 @@ async def test_usage_counts_ai_calls_per_org(client, db_session):
     assert items["Busy"]["calls"] == 3 and items["Busy"]["tokens_in"] == 30
     assert items["Busy"]["by_feature"] == {"question_gen": 2, "scoring": 1}
     assert items["Quiet"]["calls"] == 0 and quiet.name == "Quiet"
-    assert (await client.get(f"{BASE}/usage", params={"month": "2020-01"}, headers=h)).json()["items"][0]["calls"] == 0
+    assert (await client.get(f"{BASE}/usage", params={"month": "2020-01"}, headers=h)).json()["items"][0][
+        "calls"
+    ] == 0
     assert (await client.get(f"{BASE}/usage", params={"month": "bad"}, headers=h)).status_code == 422
 
 
@@ -614,7 +767,11 @@ async def test_platform_permission_matrix(client, db_session, method, path):
     assert anon.status_code == 401
     for user in (oa, hr):
         denied = await client.request(method, url, json={}, headers=await headers_for(db_session, user))
-        assert denied.status_code == 403 and denied.json()["error"]["code"] == "FORBIDDEN", (user.role, method, path)
+        assert denied.status_code == 403 and denied.json()["error"]["code"] == "FORBIDDEN", (
+            user.role,
+            method,
+            path,
+        )
     allowed = await client.request(method, url, json={}, headers=await headers_for(db_session, sa))
     assert allowed.status_code not in (401, 403), (method, path, allowed.text)
 

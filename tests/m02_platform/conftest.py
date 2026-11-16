@@ -11,6 +11,7 @@ from sqlalchemy import text
 
 from app.core import db as core_db
 from app.core.config import settings
+from tests.conftest import truncate_all
 from tests.factories import auth_headers, make_user
 
 
@@ -29,6 +30,8 @@ async def fresh_app_engine(db_engine):
     core_db._engine.cache_clear()
     async with db_engine.begin() as conn:
         await conn.execute(text("UPDATE feature_flags SET default_enabled = true"))
+    # Counts assume an empty database, so drop the rows each test left behind.
+    truncate_all(db_engine.url.render_as_string(hide_password=False))
 
 
 @pytest.fixture
@@ -58,7 +61,9 @@ def scalar(db_session):
 @pytest.fixture
 def audit_actions(db_session):
     async def _actions(org_id):
-        rows = await db_session.execute(text("select action from audit_logs where org_id = :o"), {"o": org_id})
+        rows = await db_session.execute(
+            text("select action from audit_logs where org_id = :o"), {"o": org_id}
+        )
         return [r[0] for r in rows]
 
     return _actions
