@@ -241,6 +241,29 @@ async def test_reports_ro_is_read_only(db_engine: AsyncEngine) -> None:
 
 
 @pytest.mark.parametrize(
+    ("table", "column", "allowed"),
+    [
+        ("users", "email", True),
+        ("users", "password_hash", False),
+        ("users", "totp_secret_enc", False),
+        ("users", "totp_recovery_codes_hash", False),
+        ("users", "google_sub", False),
+        ("invites", "candidate_email_enc", True),
+        ("invites", "token_hash", False),
+        ("invites", "session_binding_hash", False),
+        ("invites", "candidate_phone_enc", False),
+    ],
+)
+async def test_reports_ro_column_grants_hide_credentials(
+    db_engine: AsyncEngine, table: str, column: str, allowed: bool
+) -> None:
+    got = await _scalars(
+        db_engine, f"SELECT has_column_privilege('reports_ro', '{table}', '{column}', 'SELECT')"
+    )
+    assert got == [allowed]
+
+
+@pytest.mark.parametrize(
     ("table", "index_name"),
     [
         ("role_assessment_links", "uq_role_assessment_links_active_role"),

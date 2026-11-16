@@ -33,4 +33,6 @@ See ledger: migration hardening (reports_ro column grants, RLS on password_histo
 - [x] T5 m02+m03 (61 tests). [x] T6 m04 (router written, 207 tests). [x] T10 m14 (7 tests, router prefix fixed to /api/v1).
 - Security-review fixes applied: M4 SMTP host DNS guard in prod (`netguard.py`); password omitted = keep (no plaintext compare).
 - Decision to confirm: AI `base_url` (openai-compatible) is still not DNS-restricted in prod (self-hosted LLMs); SMTP is.
-- Next: Wave 1 gate fixes -> Wave 2 (T11 roles ..).
+- [x] Wave 1 gate fixes: reports_ro column grants (users, invites), RLS on password_history/refresh_tokens (child of users), ALTER ROLE charset check + log_statement none, all 118 operations under /api/v1, autouse engine fixture. Full suite: 587 passed. Dev DB must be recreated (baseline migration edited).
+- Handover notes: access tokens live <=15 min after logout; JWT single kid; uvicorn --proxy-headers; SMTP DNS re-resolve only at save/test (rebinding residual); export caps 50000 CSV / 2000 PDF rows.
+- Next: Wave 2: T11 M6 roles -> T12 M7 invites -> T13 M11 reports -> T14 M12 dashboard.

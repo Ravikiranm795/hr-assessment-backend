@@ -33,6 +33,7 @@ Create Date: 2026-11-16
 """
 
 import os
+import re
 from collections.abc import Sequence
 
 import sqlalchemy as sa
@@ -44,6 +45,7 @@ down_revision: str | None = None
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 
+ROLE_PASSWORD_RE = re.compile(r"[A-Za-z0-9!#$%&()*+,./:;<=>?@^_~-]{12,128}")
 DB_ROLES = ("app_rw", "reports_ro", "maintenance")
 ROLE_PASSWORD_ENV = {
     "app_rw": "APP_RW_DB_PASSWORD",
@@ -83,12 +85,20 @@ CHILD_TABLES = (
     ("question_options", "questions", "question_id"),
     ("attempt_answers", "attempts", "attempt_id"),
     ("user_gadgets", "users", "user_id"),
+    ("password_history", "users", "user_id"),
+    ("refresh_tokens", "users", "user_id"),
 )
-# Not tenant data: global catalogs, and auth tables reached only by user id or token hash
-# (login and refresh run before an organization is known).
-NON_TENANT_TABLES = ("feature_flags", "gadget_catalog", "password_history", "refresh_tokens")
+# Not tenant data: global catalogs. (Auth tables are child tables keyed on user_id; login and refresh
+# run in platform mode because they happen before an organization is known.)
+NON_TENANT_TABLES = ("feature_flags", "gadget_catalog")
 # reports_ro never reads these.
 REPORTS_EXCLUDED = ("password_history", "refresh_tokens", "org_email_settings", "org_ai_settings")
+# reports_ro reads these tables column by column, never the credential and secret columns. Candidate
+# email stays readable (ciphertext only, the key stays in the app) for report-time decryption (7.4.9).
+REPORTS_HIDDEN_COLUMNS = {
+    "users": ("password_hash", "totp_secret_enc", "totp_recovery_codes_hash", "google_sub"),
+    "invites": ("token_hash", "session_binding_hash", "candidate_phone_enc"),
+}
 
 AUDIT_INITIAL_MONTHS = 14
 
@@ -307,8 +317,14 @@ def _pre_tables() -> None:
     for role, env in ROLE_PASSWORD_ENV.items():
         password = os.environ.get(env)
         if password:
-            quoted = password.replace("'", "''")
-            op.execute(f"ALTER ROLE {role} LOGIN PASSWORD '{quoted}'")
+            if not ROLE_PASSWORD_RE.fullmatch(password):
+                raise RuntimeError(f"{env}: 12-128 characters from A-Z a-z 0-9 and ! # $ % & ( ) * + , . / : ; < = > ? @ ^ _ ~ -")
+            # utility statements take no bind parameters; the charset check above makes the literal safe
+            op.execute(
+                "DO $$ BEGIN PERFORM set_config('log_statement', 'none', true); "
+                "EXCEPTION WHEN insufficient_privilege THEN NULL; END $$"
+            )
+            op.execute(f"ALTER ROLE {role} LOGIN PASSWORD '{password}'")
 
 
 def _rls() -> None:
@@ -334,8 +350,18 @@ def _grants() -> None:
     dml = [t for t in all_tables if t != "audit_logs"]
     op.execute(f"GRANT SELECT, INSERT, UPDATE, DELETE ON {', '.join(dml)} TO app_rw")
     op.execute("GRANT SELECT, INSERT ON audit_logs TO app_rw")
-    readable = [t for t in all_tables if t not in REPORTS_EXCLUDED]
+    readable = [t for t in all_tables if t not in REPORTS_EXCLUDED and t not in REPORTS_HIDDEN_COLUMNS]
     op.execute(f"GRANT SELECT ON {', '.join(readable)} TO reports_ro")
+    for table, hidden in REPORTS_HIDDEN_COLUMNS.items():
+        hidden_sql = ", ".join(f"'{c}'" for c in hidden)
+        op.execute(
+            f"""DO $$ DECLARE cols text; BEGIN
+            SELECT string_agg(quote_ident(column_name), ', ' ORDER BY ordinal_position) INTO cols
+              FROM information_schema.columns
+             WHERE table_schema = 'public' AND table_name = '{table}' AND column_name NOT IN ({hidden_sql});
+            EXECUTE format('GRANT SELECT (%s) ON {table} TO reports_ro', cols);
+            END $$"""
+        )
 
 
 def _post_tables() -> None:

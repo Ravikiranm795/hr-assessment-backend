@@ -14,9 +14,8 @@ from sqlalchemy.ext.asyncio import AsyncConnection, AsyncEngine, AsyncSession
 
 from tests import factories as f
 
-# Tables outside tenant isolation: global catalogs, and user-scoped auth tables that are
-# only reachable by user id or token hash (login and refresh run before an org is known).
-NON_TENANT_TABLES = {"feature_flags", "gadget_catalog", "password_history", "refresh_tokens"}
+# Tables outside tenant isolation: the global catalogs.
+NON_TENANT_TABLES = {"feature_flags", "gadget_catalog"}
 
 
 @asynccontextmanager

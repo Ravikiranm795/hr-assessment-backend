@@ -143,3 +143,15 @@ def make_token() -> Callable[..., str]:
     from tests import factories
 
     return factories.make_token
+
+
+@pytest_asyncio.fixture(autouse=True)
+async def _fresh_app_engine() -> AsyncIterator[None]:
+    """The app engine is cached per URL but every test has its own event loop: drop it around each test."""
+    from app.core import db as core_db
+
+    core_db._engine.cache_clear()
+    yield
+    if core_db._engine.cache_info().currsize:
+        await core_db.get_engine().dispose()
+    core_db._engine.cache_clear()

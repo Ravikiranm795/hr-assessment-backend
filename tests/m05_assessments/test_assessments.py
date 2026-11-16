@@ -383,7 +383,12 @@ async def test_flag_off_blocks_and_openapi_declares_guards(client, world, db_ses
         "flag": "assessments"
     }
     schema = create_app().openapi()
-    ops = [op for path, item in schema["paths"].items() if path.startswith(BASE) for op in item.values()]
+    ops = [
+        op
+        for path, item in schema["paths"].items()
+        if path.startswith(BASE) and not path.startswith(f"{BASE}/ai/")  # M14 routes live under /ai
+        for op in item.values()
+    ]
     assert len(ops) == 19
     for op in ops:
         assert (
