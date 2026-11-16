@@ -25,6 +25,7 @@ SCHEDULES = {
     "audit_partitions": CronTrigger(day=1, hour=1, minute=0),
     "notification_cleanup": CronTrigger(hour=3, minute=30),
     "report_cleanup": CronTrigger(hour=4, minute=0),
+    "auth_cleanup": CronTrigger(hour=4, minute=30),
 }
 
 

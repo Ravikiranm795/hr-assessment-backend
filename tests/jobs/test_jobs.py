@@ -14,6 +14,7 @@ from app.db import AttemptAnswer, ProctorEvent
 from app.jobs import (
     JOBS,
     audit_partitions,
+    auth_cleanup,
     expire_invites,
     notification_cleanup,
     report_cleanup,
@@ -258,12 +259,39 @@ async def test_version_purge_notification_and_report_cleanup(scenario, db_sessio
 
 async def test_jobs_idempotent_second_run_noop(scenario):
     modules = [expire_invites, timeout_attempts, retry_ai_scoring, retention_purge, version_purge,
-               audit_partitions, notification_cleanup, report_cleanup]  # fmt: skip
+               audit_partitions, notification_cleanup, report_cleanup, auth_cleanup]  # fmt: skip
     assert set(JOBS) == {m.NAME for m in modules}
     for module in modules:
         await module.run()
     for module in modules:
         assert set((await module.run()).values()) == {0}, module.NAME
+
+
+async def test_auth_cleanup_purges_dead_tokens_and_trims_history(world, db_session):
+    uid = world.hr_owner.id
+    for i, (expires, revoked) in enumerate([(-48, False), (-48, True), (-1, True), (24, True), (24, False)]):
+        await db_session.execute(
+            text(
+                "INSERT INTO refresh_tokens (user_id, family_id, token_hash, expires_at, revoked_at) "
+                "VALUES (:u, gen_random_uuid(), :h, now() + make_interval(hours => :e), "
+                "CASE WHEN :r THEN now() END)"
+            ),
+            {"u": uid, "h": f"h{i}", "e": expires, "r": revoked},
+        )
+    for i in range(7):
+        await db_session.execute(
+            text(
+                "INSERT INTO password_history (user_id, password_hash, created_at) "
+                "VALUES (:u, :h, now() - make_interval(mins => :i))"
+            ),
+            {"u": uid, "h": f"p{i}", "i": i},
+        )
+    await db_session.commit()
+    assert await auth_cleanup.run() == {"refresh_tokens_removed": 2, "password_history_removed": 2}
+    kept = await _sql(db_session, "SELECT password_hash FROM password_history ORDER BY created_at DESC")
+    assert [r["password_hash"] for r in kept] == ["p0", "p1", "p2", "p3", "p4"]
+    assert len(await _sql(db_session, "SELECT 1 FROM refresh_tokens")) == 3
+    assert await auth_cleanup.run() == {"refresh_tokens_removed": 0, "password_history_removed": 0}
 
 
 async def test_serious_flag_notification_debounced_10_min(world, db_session):

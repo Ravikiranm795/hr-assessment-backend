@@ -5,6 +5,7 @@ from collections.abc import Awaitable, Callable
 
 from app.jobs import (
     audit_partitions,
+    auth_cleanup,
     expire_invites,
     notification_cleanup,
     report_cleanup,
@@ -20,7 +21,7 @@ JOBS: dict[str, JobRun] = {
     module.NAME: module.run
     for module in (
         expire_invites, timeout_attempts, retry_ai_scoring, retention_purge, version_purge,
-        audit_partitions, notification_cleanup, report_cleanup,
+        audit_partitions, notification_cleanup, report_cleanup, auth_cleanup,
     )
 }  # fmt: skip
 
