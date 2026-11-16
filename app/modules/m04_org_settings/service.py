@@ -244,7 +244,8 @@ class EmailSettingsService:
             raise AppError("SMTP_NOT_CONFIGURED", details={"reason": "credentials_unreadable"}) from None
         return SmtpConfig(
             host=row.host, port=row.port, security=SMTP_SECURITY[row.security],  # type: ignore[arg-type]
-            username=row.username, password=password, sender_email=row.sender_email, sender_name=row.sender_name,
+            username=row.username, password=password, sender_email=row.sender_email,
+            sender_name=row.sender_name,
         )  # fmt: skip
 
     async def send_test(self, ctx: TenantContext, to: str) -> schemas.EmailTestOut:
