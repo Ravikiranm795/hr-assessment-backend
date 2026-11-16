@@ -38,7 +38,9 @@ class VersionRules:
 
         if len(versions) >= MAX_VERSIONS:
             protected = await repo.protected_version_ids(session, org_id, assessment.id)
-            victim = next((v for v in sorted(versions, key=lambda v: v.version_no) if v.id not in protected), None)
+            victim = next(
+                (v for v in sorted(versions, key=lambda v: v.version_no) if v.id not in protected), None
+            )
             if victim is None:
                 raise AppError("VERSION_LIMIT_REACHED_ALL_IN_USE")
             await audit.record(
@@ -47,7 +49,11 @@ class VersionRules:
                 audit.VERSION_PURGED,
                 "assessment_version",
                 victim.id,
-                before={"assessment_id": assessment.id, "version_no": victim.version_no, "status": victim.status},
+                before={
+                    "assessment_id": assessment.id,
+                    "version_no": victim.version_no,
+                    "status": victim.status,
+                },
                 reason="version_limit",
             )
             await repo.delete_version(session, victim)

@@ -24,8 +24,8 @@ from app.core.pagination import PageParams, parse_sort
 from app.db import Assessment, AssessmentVersion, Question, QuestionOption
 from app.modules.m05_assessments import repo
 from app.modules.m05_assessments.question_rules import (
-    DEFAULT_SCORING,
     ALLOWED_SCORING,
+    DEFAULT_SCORING,
     PublishView,
     normalize_question,
     publish_issues,
@@ -37,6 +37,7 @@ from app.modules.m05_assessments.schemas import (
     AssessmentListItem,
     AssessmentPatch,
     BulkQuestionsIn,
+    OptionOut,
     PreviewHeader,
     PreviewOption,
     PreviewOut,
@@ -45,7 +46,6 @@ from app.modules.m05_assessments.schemas import (
     QuestionList,
     QuestionOut,
     QuestionPatch,
-    OptionOut,
     VersionList,
     VersionOut,
     VersionPatch,
@@ -178,7 +178,10 @@ def _question_out(q: Question, options: list[QuestionOption]) -> QuestionOut:
         prompt_html=q.prompt_html,
         marks=q.marks,
         scoring_mode=q.scoring_mode,
-        options=[OptionOut(id=o.id, position=o.position, text_html=o.text_html, is_correct=o.is_correct) for o in options],
+        options=[
+            OptionOut(id=o.id, position=o.position, text_html=o.text_html, is_correct=o.is_correct)
+            for o in options
+        ],
         answer_key=q.answer_key,
         model_answer=q.model_answer,
         code_language=q.code_language,
@@ -243,7 +246,9 @@ def _snapshot(a: Assessment) -> dict[str, Any]:
 # --------------------------------------------------------------------------- lookups with guards
 
 
-async def _assessment(session: AsyncSession, org_id: UUID, assessment_id: UUID, *, lock: bool = False) -> Assessment:
+async def _assessment(
+    session: AsyncSession, org_id: UUID, assessment_id: UUID, *, lock: bool = False
+) -> Assessment:
     row = await repo.get_assessment(session, org_id, assessment_id, lock=lock)
     if row is None:
         raise AppError("NOT_FOUND")
@@ -260,7 +265,9 @@ async def _version(
     return row
 
 
-async def _draft(session: AsyncSession, org_id: UUID, assessment_id: UUID, version_id: UUID) -> AssessmentVersion:
+async def _draft(
+    session: AsyncSession, org_id: UUID, assessment_id: UUID, version_id: UUID
+) -> AssessmentVersion:
     """The version to be edited: locked for update, and refused once published."""
     row = await _version(session, org_id, assessment_id, version_id, lock=True)
     if row.status != "draft":
@@ -288,7 +295,9 @@ class AssessmentService:
             session, assessment_id=assessment.id, org_id=ctx.org_id, version_no=1, status="draft",
             created_by=ctx.user_id,
         )  # fmt: skip
-        await audit.record(ctx, session, audit.ASSESSMENT_CREATED, "assessment", assessment.id, after=_snapshot(assessment))
+        await audit.record(
+            ctx, session, audit.ASSESSMENT_CREATED, "assessment", assessment.id, after=_snapshot(assessment)
+        )
         await audit.record(
             ctx, session, audit.VERSION_CREATED, "assessment_version", version.id,
             after={"assessment_id": assessment.id, "version_no": 1},
@@ -296,7 +305,7 @@ class AssessmentService:
         return await _detail(session, ctx.org_id, assessment)
 
     @staticmethod
-    async def list(
+    async def search(
         org_id: UUID,
         session: AsyncSession,
         params: PageParams,
@@ -334,7 +343,13 @@ class AssessmentService:
             setattr(assessment, name, value)
         await repo.flush(session)
         await audit.record(
-            ctx, session, audit.ASSESSMENT_UPDATED, "assessment", assessment.id, before=before, after=_snapshot(assessment)
+            ctx,
+            session,
+            audit.ASSESSMENT_UPDATED,
+            "assessment",
+            assessment.id,
+            before=before,
+            after=_snapshot(assessment),
         )
         return await _detail(session, ctx.org_id, assessment)
 
@@ -359,7 +374,9 @@ class AssessmentService:
         assessment = await _assessment(session, ctx.org_id, assessment_id, lock=True)
         roles = await repo.open_role_ids_linked(session, ctx.org_id, assessment.id)
         if roles:
-            raise AppError("CONFLICT", details={"reason": "linked_to_open_role", "role_ids": [str(r) for r in roles]})
+            raise AppError(
+                "CONFLICT", details={"reason": "linked_to_open_role", "role_ids": [str(r) for r in roles]}
+            )
         before = _snapshot(assessment)
         assessment.deleted_at = datetime.now(UTC)
         await repo.flush(session)
@@ -399,7 +416,11 @@ class AssessmentService:
         await repo.clone_content(session, ctx.org_id, latest.id, draft)
         await audit.record(
             ctx, session, audit.ASSESSMENT_DUPLICATED, "assessment", copy.id,
-            after={**_snapshot(copy), "source_assessment_id": source.id, "source_version_no": latest.version_no},
+            after={
+                **_snapshot(copy),
+                "source_assessment_id": source.id,
+                "source_version_no": latest.version_no,
+            },
         )  # fmt: skip
         return await _detail(session, ctx.org_id, copy)
 
@@ -414,7 +435,9 @@ class AssessmentService:
         return VersionList(items=[_summary(v, counts, protected) for v in versions])
 
     @staticmethod
-    async def get_version(org_id: UUID, session: AsyncSession, assessment_id: UUID, version_id: UUID) -> VersionOut:
+    async def get_version(
+        org_id: UUID, session: AsyncSession, assessment_id: UUID, version_id: UUID
+    ) -> VersionOut:
         return await _version_out(session, org_id, await _version(session, org_id, assessment_id, version_id))
 
     @staticmethod
@@ -469,7 +492,8 @@ class AssessmentService:
         if issues:
             only_model_answer = all(i["code"] == "model_answer_required" for i in issues)
             raise AppError(
-                "MODEL_ANSWER_REQUIRED" if only_model_answer else "QUESTION_INVALID", details={"issues": issues}
+                "MODEL_ANSWER_REQUIRED" if only_model_answer else "QUESTION_INVALID",
+                details={"issues": issues},
             )
         fields = []
         if not 5 <= version.duration_minutes <= 480:
@@ -482,8 +506,8 @@ class AssessmentService:
         await repo.publish_version(session, version, total, ctx.user_id)
         await audit.record(
             ctx, session, audit.VERSION_PUBLISHED, "assessment_version", version.id,
-            after={"assessment_id": assessment_id, "version_no": version.version_no, "questions": len(questions),
-                   "total_marks": total},
+            after={"assessment_id": assessment_id, "version_no": version.version_no,
+                   "questions": len(questions), "total_marks": total},
         )  # fmt: skip
         return await _version_out(session, ctx.org_id, version)
 
@@ -500,7 +524,11 @@ class AssessmentService:
 
     @staticmethod
     async def bulk_add(
-        ctx: TenantContext, session: AsyncSession, assessment_id: UUID, version_id: UUID, body: BulkQuestionsIn
+        ctx: TenantContext,
+        session: AsyncSession,
+        assessment_id: UUID,
+        version_id: UUID,
+        body: BulkQuestionsIn,
     ) -> QuestionList:
         """Validate every item first, then insert all (one failing suggestion rejects the batch)."""
         version = await _draft(session, ctx.org_id, assessment_id, version_id)
@@ -620,7 +648,9 @@ class AssessmentService:
     # ----- preview
 
     @staticmethod
-    async def preview(org_id: UUID, session: AsyncSession, assessment_id: UUID, version_id: UUID) -> PreviewOut:
+    async def preview(
+        org_id: UUID, session: AsyncSession, assessment_id: UUID, version_id: UUID
+    ) -> PreviewOut:
         """Exactly what a candidate will see (draft or published): header, instructions, footer,
         watermark (only while the SA's ``watermark`` flag is on for the org) and questions without keys."""
         version = await _version(session, org_id, assessment_id, version_id)
@@ -630,7 +660,9 @@ class AssessmentService:
             version_id=version.id,
             version_no=version.version_no,
             status=version.status,
-            header=PreviewHeader(company_name=header.get("company_name"), logo_asset_id=header.get("logo_asset_id")),
+            header=PreviewHeader(
+                company_name=header.get("company_name"), logo_asset_id=header.get("logo_asset_id")
+            ),
             instructions_html=version.instructions_html,
             footer_html=version.footer_html,
             watermark=watermark() if show_watermark else None,

@@ -88,11 +88,21 @@ async def list_assessments(
             .exists()
         )
         conditions += [published, Assessment.status == "active"]
-    columns = {"title": Assessment.title, "created_at": Assessment.created_at, "updated_at": Assessment.updated_at}
+    columns = {
+        "title": Assessment.title,
+        "created_at": Assessment.created_at,
+        "updated_at": Assessment.updated_at,
+    }
     order = [columns[f].asc() if d == "asc" else columns[f].desc() for f, d in sort] + [Assessment.id]
-    total = (await session.execute(select(func.count()).select_from(Assessment).where(*conditions))).scalar_one()
+    total = (
+        await session.execute(select(func.count()).select_from(Assessment).where(*conditions))
+    ).scalar_one()
     rows = (
-        (await session.execute(select(Assessment).where(*conditions).order_by(*order).offset(offset).limit(limit)))
+        (
+            await session.execute(
+                select(Assessment).where(*conditions).order_by(*order).offset(offset).limit(limit)
+            )
+        )
         .scalars()
         .all()
     )
@@ -116,7 +126,9 @@ async def get_version(
 
 
 async def get_version_any(session: AsyncSession, org_id: UUID, version_id: UUID) -> AssessmentVersion | None:
-    stmt = select(AssessmentVersion).where(AssessmentVersion.id == version_id, AssessmentVersion.org_id == org_id)
+    stmt = select(AssessmentVersion).where(
+        AssessmentVersion.id == version_id, AssessmentVersion.org_id == org_id
+    )
     return (await session.execute(stmt)).scalar_one_or_none()
 
 
@@ -150,8 +162,10 @@ async def insert_version(session: AsyncSession, **values: Any) -> AssessmentVers
 async def question_counts(session: AsyncSession, version_ids: list[UUID]) -> dict[UUID, int]:
     if not version_ids:
         return {}
-    stmt = select(Question.version_id, func.count()).where(Question.version_id.in_(version_ids)).group_by(
-        Question.version_id
+    stmt = (
+        select(Question.version_id, func.count())
+        .where(Question.version_id.in_(version_ids))
+        .group_by(Question.version_id)
     )
     return {vid: n for vid, n in (await session.execute(stmt)).all()}
 
@@ -167,7 +181,9 @@ async def recompute_total(session: AsyncSession, version: AssessmentVersion) -> 
     return version.total_marks
 
 
-async def publish_version(session: AsyncSession, version: AssessmentVersion, total: Decimal, user_id: UUID) -> None:
+async def publish_version(
+    session: AsyncSession, version: AssessmentVersion, total: Decimal, user_id: UUID
+) -> None:
     version.status = "published"
     version.total_marks = total
     version.published_at = datetime.now(UTC)
@@ -185,7 +201,9 @@ async def delete_version(session: AsyncSession, version: AssessmentVersion) -> N
 # --------------------------------------------------------------------------- questions
 
 
-async def get_question(session: AsyncSession, org_id: UUID, version_id: UUID, question_id: UUID) -> Question | None:
+async def get_question(
+    session: AsyncSession, org_id: UUID, version_id: UUID, question_id: UUID
+) -> Question | None:
     stmt = select(Question).where(
         Question.id == question_id, Question.version_id == version_id, Question.org_id == org_id
     )
@@ -201,7 +219,9 @@ async def list_questions(session: AsyncSession, org_id: UUID, version_id: UUID) 
     return list((await session.execute(stmt)).scalars().all())
 
 
-async def options_by_question(session: AsyncSession, question_ids: list[UUID]) -> dict[UUID, list[QuestionOption]]:
+async def options_by_question(
+    session: AsyncSession, question_ids: list[UUID]
+) -> dict[UUID, list[QuestionOption]]:
     grouped: dict[UUID, list[QuestionOption]] = {qid: [] for qid in question_ids}
     if question_ids:
         stmt = (
@@ -258,9 +278,7 @@ async def apply_question(session: AsyncSession, question: Question, data: Normal
     question.model_answer = data.model_answer
     question.code_language = data.code_language
     await flush(session)
-    await session.execute(
-        text("DELETE FROM question_options WHERE question_id = :q"), {"q": question.id}
-    )
+    await session.execute(text("DELETE FROM question_options WHERE question_id = :q"), {"q": question.id})
     await add_options(session, question.id, data.options)
 
 
@@ -276,7 +294,9 @@ async def renumber(session: AsyncSession, ordered: list[Question]) -> None:
     await flush(session)
 
 
-async def clone_content(session: AsyncSession, org_id: UUID, source_id: UUID, target: AssessmentVersion) -> None:
+async def clone_content(
+    session: AsyncSession, org_id: UUID, source_id: UUID, target: AssessmentVersion
+) -> None:
     """Copy every question (with options) of ``source_id`` into the draft ``target``."""
     questions = await list_questions(session, org_id, source_id)
     options = await options_by_question(session, [q.id for q in questions])

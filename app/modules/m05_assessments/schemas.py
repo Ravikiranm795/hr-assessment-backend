@@ -142,7 +142,9 @@ class VersionSummary(BaseModel):
     pass_mark_percent: Num
     total_marks: Num
     question_count: int
-    in_use: bool = Field(description="Protected from purge: open role link, undecided attempt or pending invite.")
+    in_use: bool = Field(
+        description="Protected from purge: open role link, undecided attempt or pending invite."
+    )
     published_at: datetime | None
     created_at: datetime
 

@@ -57,7 +57,12 @@ def gap(scoring_mode: str = "auto", **extra: Any) -> dict:
 
 
 def short(scoring_mode: str = "manual", **extra: Any) -> dict:
-    body = {"type": "short_answer", "prompt_html": "<p>Explain TCP</p>", "marks": 5, "scoring_mode": scoring_mode}
+    body = {
+        "type": "short_answer",
+        "prompt_html": "<p>Explain TCP</p>",
+        "marks": 5,
+        "scoring_mode": scoring_mode,
+    }
     body.update(extra)
     return body
 
@@ -71,7 +76,9 @@ async def new_assessment(client, headers: dict, title: str = "Backend test") -> 
 
 
 async def add_question(client, headers: dict, aid: str, vid: str, payload: dict | None = None) -> dict:
-    resp = await client.post(f"{BASE}/{aid}/versions/{vid}/questions", json=payload or single(), headers=headers)
+    resp = await client.post(
+        f"{BASE}/{aid}/versions/{vid}/questions", json=payload or single(), headers=headers
+    )
     assert resp.status_code == 201, resp.text
     return resp.json()
 
