@@ -10,6 +10,7 @@ import base64
 import hashlib
 import hmac
 import os
+import re
 import struct
 import sys
 import time
@@ -238,3 +239,97 @@ def question_payloads() -> list[dict[str, Any]]:
             "answer_key": {"key_points": ["speeds up lookups", "sorted structure"]},
         },
     ]
+
+
+# --------------------------------------------------------------------------- PDF inspection (stdlib only)
+
+
+def pdf_valid(data: bytes) -> bool:
+    """Header, end marker, at least one page, and every Flate stream decompresses."""
+    if not (data.startswith(b"%PDF-") and data.rstrip().endswith(b"%%EOF")):
+        return False
+    try:
+        return bool(_pdf_streams(data)) and pdf_page_count(data) >= 1
+    except Exception:  # noqa: BLE001
+        return False
+
+
+def pdf_page_count(data: bytes) -> int:
+    meta = _pdf_meta(data)
+    counts = [int(c) for c in re.findall(rb"/Type\s*/Pages\b[^>]*?/Count\s+(\d+)", meta)]
+    return max(counts) if counts else len(re.findall(rb"/Type\s*/Page\b", meta))
+
+
+def pdf_title(data: bytes) -> str:
+    m = re.search(rb"/Producer\s*\([^)]*\)\s*/Title\s*\(([^)]*)\)", _pdf_meta(data))
+    return m.group(1).decode("latin-1") if m else ""
+
+
+def _pdf_streams(data: bytes) -> dict[int, tuple[bytes, bytes]]:
+    objs: dict[int, tuple[bytes, bytes]] = {}
+    for m in re.finditer(rb"(\d+) 0 obj\s*<<(.*?)>>\s*stream\r?\n", data, re.S):
+        length = re.search(rb"/Length\s+(\d+)(?!\s+0\s+R)", m.group(2))
+        if length:  # exact length: compressed bytes may legitimately end in CR/LF
+            raw = data[m.end() : m.end() + int(length.group(1))]
+        else:
+            raw = data[m.end() : data.find(b"endstream", m.end())].rstrip(b"\r\n")
+        if b"FlateDecode" in m.group(2):
+            raw = zlib.decompressobj().decompress(raw)
+        objs[int(m.group(1))] = (m.group(2), raw)
+    return objs
+
+
+def _pdf_meta(data: bytes) -> bytes:
+    objs = _pdf_streams(data)
+    return data + b"\n".join(raw for d, raw in objs.values() if b"ObjStm" in d)
+
+
+def pdf_text(data: bytes) -> str:
+    """Text shown on the pages, decoded through each font's ToUnicode map (WeasyPrint output)."""
+    objs = _pdf_streams(data)
+    meta = _pdf_meta(data)
+    cmaps: dict[int, dict[int, str]] = {}
+    for num, (_, raw) in objs.items():
+        if b"beginbfchar" not in raw and b"beginbfrange" not in raw:
+            continue
+        cmap: dict[int, str] = {}
+        for blk in re.findall(rb"beginbfchar(.*?)endbfchar", raw, re.S):
+            for a, b in re.findall(rb"<([0-9A-Fa-f]+)>\s*<([0-9A-Fa-f]+)>", blk):
+                cmap[int(a, 16)] = bytes.fromhex(b.decode()).decode("utf-16-be")
+        for blk in re.findall(rb"beginbfrange(.*?)endbfrange", raw, re.S):
+            for a, b, c in re.findall(rb"<([0-9A-Fa-f]+)>\s*<([0-9A-Fa-f]+)>\s*<([0-9A-Fa-f]+)>", blk):
+                for i in range(int(a, 16), int(b, 16) + 1):
+                    cmap[i] = chr(int(c, 16) + i - int(a, 16))
+        cmaps[num] = cmap
+    font_names = {n.decode(): int(o) for n, o in re.findall(rb"/(\w+)\s+(\d+) 0 R", meta)}
+    font_cmap: dict[int, dict[int, str]] = {}
+    for d, raw in objs.values():  # fonts live inside object streams: split them by their offset table
+        if b"ObjStm" not in d:
+            continue
+        n, first = int(re.search(rb"/N (\d+)", d).group(1)), int(re.search(rb"/First (\d+)", d).group(1))
+        table = list(map(int, raw[:first].split()))
+        for i in range(n):
+            end = table[2 * i + 3] if i + 1 < n else len(raw) - first
+            body = raw[first + table[2 * i + 1] : first + end]
+            m = re.search(rb"/ToUnicode (\d+) 0 R", body)
+            if m:
+                font_cmap[table[2 * i]] = cmaps.get(int(m.group(1)), {})
+    out: list[str] = []
+    for _, raw in objs.values():
+        if b"BT" not in raw or b"Tf" not in raw:
+            continue
+        cur: dict[int, str] = {}
+        pat = rb"/(\w+)\s+[\d.]+\s+Tf|<([0-9A-Fa-f]+)>\s*Tj|\[(.*?)\]\s*TJ|ET"
+        for tok in re.finditer(pat, raw, re.S):
+            if tok.group(1):
+                cur = font_cmap.get(font_names.get(tok.group(1).decode(), -1), {})
+            elif tok.group(0) == b"ET":
+                out.append("\n")
+            else:
+                hexes = (
+                    [tok.group(2)] if tok.group(2) else re.findall(rb"<([0-9A-Fa-f]+)>", tok.group(3) or b"")
+                )
+                for h in hexes:
+                    s = h.decode()
+                    out.append("".join(cur.get(int(s[i : i + 4], 16), "?") for i in range(0, len(s), 4)))
+    return "".join(out)

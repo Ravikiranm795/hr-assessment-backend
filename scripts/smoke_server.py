@@ -52,7 +52,8 @@ def _mock_ai(call: dict) -> dict:
 
 def build():
     set_provider_override(MockProvider(_mock_ai))
-    set_email_sender(MemoryEmailSender())
+    if os.environ.get("SMOKE_REAL_SMTP") != "1":  # smoke_extra.py sets it to reach a local capture server
+        set_email_sender(MemoryEmailSender())
     return create_app()
 
 
