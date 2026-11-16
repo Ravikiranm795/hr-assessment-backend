@@ -98,3 +98,8 @@ async def audit_count(session: AsyncSession, action: str, user_id: Any = None, *
         sql += f" and {key} = :{key}"
         params[key] = value
     return await scalar(session, sql, **params)
+
+
+async def user_col(session: AsyncSession, column: str, user_id: Any) -> Any:
+    """One column of one users row, read straight from the database."""
+    return await scalar(session, f"select {column} from users where id = :i", i=user_id)

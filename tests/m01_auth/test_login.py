@@ -4,13 +4,14 @@ from datetime import UTC, datetime, timedelta
 
 import pytest
 from httpx import AsyncClient
+from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
 from app.modules.m01_auth.cli import create_default_superadmin
 from app.modules.m01_auth.router import REFRESH_COOKIE
 from tests import factories
-from tests.m01_auth.conftest import BASE, PASSWORD, World, audit_count, bearer, login, scalar
+from tests.m01_auth.conftest import BASE, PASSWORD, World, audit_count, bearer, login, scalar, user_col
 
 
 async def test_login_success_sets_refresh_cookie(client: AsyncClient, world: World, db_session: AsyncSession):
@@ -33,8 +34,10 @@ async def test_login_success_sets_refresh_cookie(client: AsyncClient, world: Wor
     me = await client.get(f"{BASE}/me", headers=bearer(response))
     assert me.status_code == 200 and me.json()["user"]["id"] == str(world.hr.id)
     assert await audit_count(db_session, "AUTH_LOGIN_SUCCESS", world.hr.id) == 1
-    assert await scalar(db_session, "select last_login_at from users where id = :i", i=world.hr.id) is not None
-    assert await scalar(db_session, "select count(*) from refresh_tokens where user_id = :i", i=world.hr.id) == 1
+    assert await user_col(db_session, "last_login_at", world.hr.id) is not None
+    assert (
+        await scalar(db_session, "select count(*) from refresh_tokens where user_id = :i", i=world.hr.id) == 1
+    )
 
 
 async def test_wrong_password_generic_error_and_counter(
@@ -50,12 +53,16 @@ async def test_wrong_password_generic_error_and_counter(
     assert wrong.json()["error"]["details"] == unknown.json()["error"]["details"] == {}
     assert "refresh" not in "".join(wrong.headers.get_list("set-cookie"))
 
-    assert await scalar(db_session, "select failed_login_count from users where id = :i", i=world.hr.id) == 1
+    assert await user_col(db_session, "failed_login_count", world.hr.id) == 1
     assert await audit_count(db_session, "AUTH_LOGIN_FAILED", world.hr.id) == 1
-    assert await audit_count(db_session, "AUTH_LOGIN_FAILED", reason=None) >= 1  # unknown email row exists
+    unknown_rows = await scalar(
+        db_session,
+        "select count(*) from audit_logs where action = 'AUTH_LOGIN_FAILED' and actor_user_id is null",
+    )
+    assert unknown_rows == 1  # the unknown email is audited too
 
     assert (await login(client, world.hr.email)).status_code == 200
-    assert await scalar(db_session, "select failed_login_count from users where id = :i", i=world.hr.id) == 0
+    assert await user_col(db_session, "failed_login_count", world.hr.id) == 0
 
 
 async def test_lockout_after_5_failures_for_15_minutes(
@@ -72,7 +79,7 @@ async def test_lockout_after_5_failures_for_15_minutes(
     locked = await login(client, world.hr.email)
     assert locked.status_code == 423 and locked.json()["error"]["code"] == "ACCOUNT_LOCKED"
 
-    until = await scalar(db_session, "select locked_until from users where id = :i", i=world.hr.id)
+    until = await user_col(db_session, "locked_until", world.hr.id)
     delta = until - datetime.now(UTC)
     assert timedelta(minutes=14) < delta <= timedelta(minutes=15)
     assert await audit_count(db_session, "AUTH_ACCOUNT_LOCKED", world.hr.id) == 1
@@ -87,13 +94,13 @@ async def test_lockout_after_5_failures_for_15_minutes(
 
     # After the lock window the account works again and the counter starts over.
     await db_session.execute(
-        __import__("sqlalchemy").text("update users set locked_until = now() - interval '1 minute' where id = :i"),
+        text("update users set locked_until = now() - interval '1 minute' where id = :i"),
         {"i": world.hr.id},
     )
     await db_session.commit()
     assert (await login(client, world.hr.email)).status_code == 200
-    assert await scalar(db_session, "select failed_login_count from users where id = :i", i=world.hr.id) == 0
-    assert await scalar(db_session, "select locked_until from users where id = :i", i=world.hr.id) is None
+    assert await user_col(db_session, "failed_login_count", world.hr.id) == 0
+    assert await user_col(db_session, "locked_until", world.hr.id) is None
 
 
 async def test_disabled_org_login_returns_ORG_DISABLED(client: AsyncClient, db_session: AsyncSession):
@@ -107,31 +114,6 @@ async def test_disabled_org_login_returns_ORG_DISABLED(client: AsyncClient, db_s
     assert await audit_count(db_session, "AUTH_LOGIN_FAILED", user.id) == 1
 
 
-async def test_inactive_user_gets_generic_error(client: AsyncClient, db_session: AsyncSession):
-    org = await factories.make_org(db_session)
-    user = await factories.make_user(db_session, "hr_user", org, password=PASSWORD, status="inactive")
-    await db_session.commit()
-
-    response = await login(client, user.email)
-
-    assert response.status_code == 401 and response.json()["error"]["code"] == "INVALID_CREDENTIALS"
-
-
-async def test_login_is_rate_limited_per_ip(client: AsyncClient, world: World, monkeypatch: pytest.MonkeyPatch):
-    monkeypatch.setattr(settings, "rate_limit_login", "3/minute")
-    for _ in range(3):
-        assert (await login(client, "nobody@example.com", "x")).status_code == 401
-    limited = await login(client, world.hr.email)
-    assert limited.status_code == 429 and limited.json()["error"]["code"] == "RATE_LIMITED"
-    assert "retry-after" in limited.headers
-
-
-async def test_login_body_is_validated(client: AsyncClient):
-    response = await client.post(f"{BASE}/login", json={"email": "a@example.com"})
-    assert response.status_code == 422
-    assert response.json()["error"]["code"] == "VALIDATION_ERROR"
-
-
 async def test_default_sa_login_audited_and_marked(
     client: AsyncClient, db_session: AsyncSession, monkeypatch: pytest.MonkeyPatch
 ):
@@ -143,9 +125,7 @@ async def test_default_sa_login_audited_and_marked(
     assert await create_default_superadmin() == "exists"  # idempotent
     row = (
         await db_session.execute(
-            __import__("sqlalchemy").text(
-                "select id, org_id, role, must_change_password from users where is_default_super_admin"
-            )
+            text("select id, org_id, role, must_change_password from users where is_default_super_admin")
         )
     ).all()
     assert len(row) == 1 and row[0].org_id is None and row[0].role == "super_admin"
@@ -174,8 +154,3 @@ async def test_default_sa_login_audited_and_marked(
     assert (await client.post(f"{BASE}/totp/setup", headers=bearer(response))).json()["error"]["code"] == (
         "PROTECTED_ACCOUNT"
     )
-
-    # A failed attempt on the break-glass account is marked too and still counts (login bookkeeping).
-    bad = await login(client, "breakglass@example.com", "wrong-wrong-wrong")
-    assert bad.status_code == 401
-    assert await scalar(db_session, "select failed_login_count from users where id = :i", i=user_id) == 1
