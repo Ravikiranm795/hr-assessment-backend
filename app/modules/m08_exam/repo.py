@@ -107,6 +107,17 @@ async def get_event(
     return (await session.execute(stmt)).scalar_one_or_none()
 
 
+async def recent_notification(session: AsyncSession, org_id: UUID, kind: str, entity_id: UUID, since) -> bool:
+    row = await session.execute(
+        text(
+            "SELECT 1 FROM notifications WHERE org_id = :o AND type = :t AND entity_id = :e "
+            "AND created_at > :since LIMIT 1"
+        ),
+        {"o": org_id, "t": kind, "e": entity_id, "since": since},
+    )
+    return row.first() is not None
+
+
 # --------------------------------------------------------------------------- help requests
 
 

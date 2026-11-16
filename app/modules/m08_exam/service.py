@@ -48,6 +48,7 @@ from app.modules.m08_exam.session import new_binding
 from app.modules.m08_exam.severity_rules import EVENT_TYPES, TAB_TYPES, severity_for
 
 SAVE_GRACE = timedelta(seconds=5)
+SERIOUS_DEBOUNCE = timedelta(minutes=10)
 MAX_ANSWER_CHARS = 20_000
 MAX_SLOT_CHARS = 2_000
 MAX_META_BYTES = 2_048
@@ -391,7 +392,7 @@ class ExamService:
     @staticmethod
     async def ingest_events(session: AsyncSession, exam: ExamContext, body: EventsIn) -> EventsOut:
         """Never stops or rejects the exam. Unknown types are ignored; severity is server-assigned."""
-        attempt, _ = await _load(session, exam, lock=True)
+        attempt, invite = await _load(session, exam, lock=True)
         ExamService._live(attempt)
         check_rate_limit(settings.rate_limit_exam_events, "exam_events", "attempt", str(attempt.id))
         tab_events = await repo.count_tab_events(session, attempt.id)
@@ -400,6 +401,7 @@ class ExamService:
             "severity": dict(attempt.flag_counts.get("severity", {})),
         }
         accepted = 0
+        serious: str | None = None
         for item in body.events:
             if item.type not in EVENT_TYPES or len(json.dumps(item.meta, default=str)) > MAX_META_BYTES:
                 continue
@@ -415,9 +417,29 @@ class ExamService:
             counts["types"][item.type] = counts["types"].get(item.type, 0) + 1
             counts["severity"][severity] = counts["severity"].get(severity, 0) + 1
             accepted += 1
+            if severity == "serious":
+                serious = serious or item.type
         attempt.flag_counts = counts
         await session.flush()
+        if serious:
+            await ExamService._notify_serious(session, attempt, invite, serious)
         return EventsOut(accepted=accepted, ignored=len(body.events) - accepted)
+
+    @staticmethod
+    async def _notify_serious(
+        session: AsyncSession, attempt: Attempt, invite: Invite, event_type: str
+    ) -> None:
+        """One ``serious_flag`` notification per attempt per 10 minutes, whatever the event volume."""
+        if await repo.recent_notification(
+            session, attempt.org_id, "serious_flag", attempt.id, _now() - SERIOUS_DEBOUNCE
+        ):
+            return
+        role = await repo.role_info(session, attempt.org_id, invite.role_id)
+        if role:
+            await notifications.notify(
+                session, attempt.org_id, role["owner_id"], "serious_flag",
+                {"attempt_id": str(attempt.id), "event_type": event_type}, "attempt", attempt.id,
+            )  # fmt: skip
 
     @staticmethod
     async def snapshot(
