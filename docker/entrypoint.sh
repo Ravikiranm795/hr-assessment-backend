@@ -44,4 +44,6 @@ if python -m app.cli --help 2>/dev/null | grep -q "create-default-superadmin"; t
     python -m app.cli create-default-superadmin
 fi
 
-exec "$@"
+# Behind a reverse proxy the client address comes from X-Forwarded-For, trusted only from these peers
+# (per-IP rate limiting depends on it). Comma-separated IPs/CIDRs, or * for "every peer is the proxy".
+exec "$@" --forwarded-allow-ips "${FORWARDED_ALLOW_IPS:-127.0.0.1}"
