@@ -27,3 +27,7 @@ See ledger: migration hardening (reports_ro column grants, RLS on password_histo
 - ~80% of usage: only critical-path tasks (T7 -> T11/T12 -> T15 -> T16), no new parallel agents.
 - ~90% or any HTTP 429: stop dispatching, commit WIP, update this file, wait for the reset, then resume with SendMessage to the same agents (or re-dispatch from the brief files).
 - Lean tests: 8-12 per module (see plan Global Constraints).
+
+## Serial-mode checkpoints (single agent, lean tests; supersedes the parallel resume steps above)
+- [x] T7 m05 assessments green (98 passed). [x] T8 m05b question bank (7 tests, commit `feat(m05b)`).
+- Next: T5 m02+m03 -> T6 m04 (needs router.py) -> T10 m14 tests -> gate fixes -> Wave 2 (T11..).
