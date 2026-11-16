@@ -4,9 +4,11 @@
 |---|---|
 | Repository | `hr-assessment-backend` (branch `build/one-shot`) |
 | Stack | Python 3.12, FastAPI, PostgreSQL 16 (SQLAlchemy 2 async, Alembic), Docker Compose |
-| API size | 191 operations on 157 paths, 12 modules (M1 to M12 plus the question bank and AI), 8 background jobs, 22 feature flags |
+| API size | 192 operations on 158 paths (includes `/metrics`), 12 modules (M1 to M12 plus the question bank and AI), 9 background jobs (including `auth_cleanup`), 22 feature flags. Counts in the generated tables below were taken before the last hardening pass; the OpenAPI file is current |
+| Frontend team | Start with [`FE-HANDOVER.md`](FE-HANDOVER.md): how to run Swagger, auth and exam contracts, error handling, screen-to-endpoint map |
 | Spec | `docs/spec/MASTER-SPEC.md` (decision register and build specification) |
-| API reference | `docs/openapi.json` (also served at `/docs` and `/openapi.json` by a running instance) |
+| API reference | `docs/openapi.json` (also served at `/docs` and `/openapi.json` by a running instance) and `docs/swagger.html` (standalone page, open by double-click; rebuild with `python3 scripts/build_swagger_html.py`) |
+| Working rules | `CLAUDE.md` at the repo root: analyse code with the brain MCP, read and write files with Claude's built-in Read/Write/Edit instead of shell scripts (see `FE-HANDOVER.md` section 6) |
 | Companion documents | `docs/error_codes.md`, `docs/test_report.md`, `docs/smoke_report.md`, `seed/README.md`, `app/core/README.md`, `docs/BUILD-STATE.md` |
 
 > **Please read this document carefully before forwarding it to anyone outside the team.** It lists residual security risks and open decisions that are meant for the owner and the engineering team.
