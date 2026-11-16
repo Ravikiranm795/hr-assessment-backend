@@ -12,7 +12,7 @@ from app.core.config import Settings
 from app.core.config import settings as default_settings
 from app.core.deps import install_openapi_extensions
 from app.core.errors import install_error_handlers
-from app.core.middleware import REQUEST_ID_HEADER, RequestIDMiddleware
+from app.core.middleware import REQUEST_ID_HEADER, RequestIDMiddleware, SecurityHeadersMiddleware
 from app.core.storage import router as files
 
 
@@ -34,6 +34,7 @@ def create_app(app_settings: Settings | None = None) -> FastAPI:
         allow_headers=["*"],
         expose_headers=[REQUEST_ID_HEADER],
     )
+    api.add_middleware(SecurityHeadersMiddleware)
     # Added last so it is outermost: the header is set on CORS preflights and errors too.
     api.add_middleware(RequestIDMiddleware)
 

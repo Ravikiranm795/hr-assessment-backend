@@ -38,3 +38,33 @@ class RequestIDMiddleware:
             await send(message)
 
         await self.app(scope, receive, send_with_id)
+
+
+SECURITY_HEADERS = {
+    "X-Content-Type-Options": "nosniff",
+    "X-Frame-Options": "DENY",
+    "Referrer-Policy": "no-referrer",
+    # Browsers ignore HSTS on plain http, so it is safe to send everywhere (spec 10: HTTPS only).
+    "Strict-Transport-Security": "max-age=31536000; includeSubDomains",
+}
+
+
+class SecurityHeadersMiddleware:
+    """Adds the spec 10 transport security headers to every HTTP response (errors included)."""
+
+    def __init__(self, app: ASGIApp) -> None:
+        self.app = app
+
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        if scope["type"] != "http":
+            await self.app(scope, receive, send)
+            return
+
+        async def send_with_headers(message: Message) -> None:
+            if message["type"] == "http.response.start":
+                headers = MutableHeaders(scope=message)
+                for name, value in SECURITY_HEADERS.items():
+                    headers.setdefault(name, value)
+            await send(message)
+
+        await self.app(scope, receive, send_with_headers)
