@@ -25,6 +25,7 @@ from app.core.storage import get_storage
 from app.db import Asset, BrandingTheme, Document, DocumentVersion, OrgAiSettings, OrgEmailSettings
 from app.modules.m04_org_settings import catalog, repo, schemas
 from app.modules.m04_org_settings.contrast import MIN_RATIO, check_text_contrast
+from app.modules.m04_org_settings.netguard import ensure_public_host
 from app.modules.m04_org_settings.sanitize import sanitize_html
 from app.modules.m04_org_settings.uploads import inspect_image, inspect_pdf, read_limited
 
@@ -189,21 +190,15 @@ class EmailSettingsService:
     async def get(self, ctx: TenantContext) -> schemas.EmailSettingsOut:
         return self._out(await repo.get_email(self.session, _org_id(ctx)))
 
-    @staticmethod
-    def _same_password(blob: str, plain: str) -> bool:
-        try:
-            return security.decrypt_field(blob) == plain
-        except ValueError:
-            return False
-
     async def put(self, ctx: TenantContext, body: schemas.EmailSettingsIn) -> schemas.EmailSettingsOut:
         org_id = _org_id(ctx)
+        await ensure_public_host(body.host)
         row = await repo.get_email(self.session, org_id)
         new = body.model_dump(include=set(self.FIELDS))
         new["sender_email"] = str(new["sender_email"])
         old_enc = row.password_enc if row else None
-        if body.password is None or (old_enc and self._same_password(old_enc, body.password)):
-            new_enc = old_enc  # omitted or unchanged (ciphertext is randomized, so compare plaintext)
+        if body.password is None:
+            new_enc = old_enc
         else:
             new_enc = security.encrypt_field(body.password) if body.password else None
         before = {f: getattr(row, f) if row else None for f in self.FIELDS} | {"password_enc": old_enc}
@@ -243,6 +238,7 @@ class EmailSettingsService:
         row = await repo.get_email(self.session, org_id)
         if row is None:
             raise AppError("SMTP_NOT_CONFIGURED")
+        await ensure_public_host(row.host)
         reason: str | None = None
         try:
             password = security.decrypt_field(row.password_enc) if row.password_enc else None

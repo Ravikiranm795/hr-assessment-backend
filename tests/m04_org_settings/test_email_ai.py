@@ -96,7 +96,12 @@ async def test_changing_smtp_target_resets_verified(http, tenant, db_session, ou
         f"{API}/settings/email/test", headers=tenant.headers, json={"to": "me@example.com"}
     )
     assert sent.json()["verified_at"]
-    same = await http.put(f"{API}/settings/email", headers=tenant.headers, json=SMTP | {"enabled": False})
+    # password omitted = keep the stored one; re-sending it would (correctly) reset verification
+    same = await http.put(
+        f"{API}/settings/email",
+        headers=tenant.headers,
+        json={k: v for k, v in SMTP.items() if k != "password"} | {"enabled": False},
+    )
     assert same.json()["verified_at"] is not None  # only `enabled` changed
     moved = await http.put(
         f"{API}/settings/email", headers=tenant.headers, json=SMTP | {"host": "other.example.com"}
@@ -439,3 +444,25 @@ async def test_ai_usage_meter(http, tenant, other_tenant, db_session):
     assert body["calls"] == 3 and body["tokens_in"] == 117 and body["tokens_out"] == 58
     assert body["by_feature"] == {"question_gen": 1, "scoring": 2}
     assert body["monthly_call_cap"] == 10 and body["remaining"] == 7 and len(body["month"]) == 7
+
+
+async def test_prod_rejects_hostnames_resolving_to_internal_addresses(http, tenant, monkeypatch):
+    from app.core.config import settings
+    from app.modules.m04_org_settings import netguard
+
+    monkeypatch.setattr(settings, "app_env", "prod")
+    body = SMTP | {"host": "mail.attacker.example.com"}
+    for resolved, status in (
+        (["10.0.0.5"], 422),
+        (["93.184.216.34", "127.0.0.1"], 422),
+        (["93.184.216.34"], 200),
+    ):
+
+        async def fake(host, resolved=resolved):
+            return resolved
+
+        monkeypatch.setattr(netguard, "_resolve", fake)
+        r = await http.put(f"{API}/settings/email", headers=tenant.headers, json=body)
+        assert r.status_code == status, (resolved, r.text)
+        if status == 422:
+            assert r.json()["error"]["details"]["fields"][0]["code"] == "internal_address_not_allowed"
