@@ -11,6 +11,7 @@ from sqlalchemy import text
 from app.core import notifications
 from app.jobs.base import BATCH, DEFAULT_FACTORY, SessionFactory, job_ctx, now_utc
 from app.modules.m09_review import hooks
+from app.modules.m14_ai import scoring_runner  # noqa: F401  (registers the AI scoring hook in the worker)
 
 NAME = "retry_ai_scoring"
 STALE_AFTER = timedelta(minutes=15)

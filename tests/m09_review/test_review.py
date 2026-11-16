@@ -6,6 +6,7 @@ from app.core.storage import get_storage, set_storage
 from app.core.storage.local import LocalStorage
 from app.db import Asset, AttemptAnswer, ProctorEvent
 from app.modules.m08_exam.service import ExamService
+from app.modules.m09_review import hooks as review_hooks
 from app.modules.m09_review.scoring import ScoringService  # also registers the on_submit scoring hook
 from tests import factories as f
 
@@ -139,7 +140,7 @@ async def test_decision_once_by_owner_override_by_admin_with_history(client, wor
     assert {"DECISION_MADE", "DECISION_OVERRIDDEN"} <= actions
 
 
-async def test_score_override_dismiss_flag_and_extra_time(client, world, open_role, db_session):
+async def test_score_override_dismiss_flag_and_extra_time(client, world, open_role, db_session, monkeypatch):
     _, _, attempt, qids = await _attempt(db_session, world, open_role)
     live_role, _, live, _ = await _attempt(db_session, world, open_role, status="in_progress")
     event = ProctorEvent(attempt_id=attempt.id, org_id=world.org.id, type="tab_switch", severity="serious")
@@ -181,6 +182,7 @@ async def test_score_override_dismiss_flag_and_extra_time(client, world, open_ro
     assert moved.total_seconds() == 70 * 60
     actions = {r["action"] for r in await _sql(db_session, "SELECT action FROM audit_logs")}
     assert {"SCORE_OVERRIDDEN", "FLAG_DISMISSED", "EXTRA_TIME_GRANTED"} <= actions
+    monkeypatch.setattr(review_hooks, "ai_scoring_hooks", [])  # no AI runner registered
     assert (await client.post(f"{API}/attempts/{attempt.id}/rescore", headers=h)).json()["error"][
         "code"
     ] == "AI_NOT_CONFIGURED"

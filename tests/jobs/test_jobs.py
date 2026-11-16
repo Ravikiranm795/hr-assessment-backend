@@ -200,7 +200,7 @@ async def test_retention_purge_deletes_detail_keeps_summary_never_purges_undecid
     assert {"RETENTION_PURGE_RUN", "CANDIDATE_DATA_DELETED"} <= actions
 
 
-async def test_retry_ai_scoring_retries_fresh_and_marks_stale_needs_manual(scenario, db_session):
+async def test_retry_ai_scoring_retries_fresh_and_marks_stale_needs_manual(scenario, db_session, monkeypatch):
     fresh = await f.make_attempt(
         db_session, await f.make_invite(db_session, scenario["org"], scenario["role"]), status="submitted",
         scoring_status="pending", submitted_at=NOW - timedelta(minutes=1),
@@ -211,11 +211,8 @@ async def test_retry_ai_scoring_retries_fresh_and_marks_stale_needs_manual(scena
     async def hook(ctx, session, attempt_id):
         calls.append(attempt_id)
 
-    review_hooks.ai_scoring_hooks.append(hook)
-    try:
-        result = await retry_ai_scoring.run()
-    finally:
-        review_hooks.ai_scoring_hooks.remove(hook)
+    monkeypatch.setattr(review_hooks, "ai_scoring_hooks", [hook])  # isolate from the real AI runner
+    result = await retry_ai_scoring.run()
     assert result == {"pending": 2, "retried": 1, "needs_manual": 1, "failed": 0} and calls == [fresh.id]
     status = {
         r["id"]: r["scoring_status"]

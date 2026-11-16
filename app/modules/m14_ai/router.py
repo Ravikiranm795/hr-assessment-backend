@@ -12,7 +12,10 @@ from app.core.db import TenantContext
 from app.core.deps import DbSession, require_feature, require_role
 from app.core.flags import AI_QUESTION_BUILDER
 from app.core.roles import HR_USER, ORG_ADMIN
-from app.modules.m14_ai import catalog  # noqa: F401  (keeps the catalog import path warm)
+from app.modules.m14_ai import (
+    catalog,  # noqa: F401  (keeps the catalog import path warm)
+    scoring_runner,  # noqa: F401  (registers the AI scoring hook in the API process)
+)
 from app.modules.m14_ai.schemas import (
     DEFAULT_QUESTIONS,
     DIFFICULTIES,

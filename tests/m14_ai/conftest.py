@@ -95,3 +95,12 @@ def questions(n: int) -> dict:
             for i in range(n)
         ]
     }
+
+
+@pytest_asyncio.fixture(autouse=True)
+async def _clean_between_tests(db_engine):
+    """Notification and audit assertions count rows, so every test starts from catalogs only."""
+    from tests.conftest import truncate_all
+
+    yield
+    truncate_all(db_engine.url.render_as_string(hide_password=False))
