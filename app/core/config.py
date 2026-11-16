@@ -40,6 +40,11 @@ class Settings(BaseSettings):
     field_encryption_keys: str = ""
     token_pepper: str = ""
 
+    # Argon2id cost, calibrated to about 250 ms per hash in the API container (see core/README.md).
+    argon2_time_cost: int = 12
+    argon2_memory_kib: int = 65536
+    argon2_parallelism: int = 4
+
     default_sa_email: str = ""
     default_sa_name: str = ""
     default_sa_password: str = ""

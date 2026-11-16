@@ -10,7 +10,10 @@ from app.core import health
 from app.core.autoload import load_submodules
 from app.core.config import Settings
 from app.core.config import settings as default_settings
+from app.core.deps import install_openapi_extensions
+from app.core.errors import install_error_handlers
 from app.core.middleware import REQUEST_ID_HEADER, RequestIDMiddleware
+from app.core.storage import router as files
 
 
 def discover_routers(package: ModuleType = modules_package) -> list[APIRouter]:
@@ -34,7 +37,11 @@ def create_app(app_settings: Settings | None = None) -> FastAPI:
     # Added last so it is outermost: the header is set on CORS preflights and errors too.
     api.add_middleware(RequestIDMiddleware)
 
+    install_error_handlers(api)
+
     api.include_router(health.router)
+    api.include_router(files.router)
     for router in discover_routers():
         api.include_router(router)
+    install_openapi_extensions(api)
     return api
