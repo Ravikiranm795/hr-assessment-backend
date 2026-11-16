@@ -53,3 +53,10 @@ See ledger: migration hardening (reports_ro column grants, RLS on password_histo
 - T20/T21 replaced by live API verification: `scripts/smoke_e2e.py`, `scripts/smoke_security.py`, report in `docs/smoke_report.md`.
 - 2-3 agents at a time, disjoint directories. Remaining: T13 M11 reports, T22 seed, T23 openapi, T24 handover, then one final full-suite run.
 - brainu 1.0.0 is installed globally but `brain build` segfaults (exit 139, tree-sitter native) on Node 24 and Node 20 on this machine, so no brain index exists for this repo.
+
+## FINAL STATUS (2026-11-17): backend development complete
+- All tasks done: T1-T19 modules and jobs, T13 M11 reports, T22 seed, T23 OpenAPI (191 ops), T24 handover. T20/T21 replaced by live scripts: `scripts/smoke_e2e.py` (105 PASS), `scripts/smoke_security.py` (118 PASS), `scripts/smoke_extra.py` (230 PASS, 4 skipped: need real Google/SMTP/S3 credentials). Report: `docs/smoke_report.md`.
+- Full suite once at the end: 689 passed. Lint and name check clean.
+- Hardening landed: security headers, JSON logs + /metrics, DATABASE_URL_MIGRATIONS, proxy headers, stable JWT issuer/cookie name, COOKIE_SECURE, docs off in prod, auth_cleanup job, S3 config validator, ORG_DISABLED on exam start.
+- Owner decisions still open: AI `base_url` DNS restriction in prod; `is_demo` not rejected in the org API (reserved-slug risk); regenerate-link keeps browser binding (intended per spec, HR UI should offer reset-binding).
+- Docs: `docs/HANDOVER.md` (Mermaid diagrams are AI-generated: review carefully), `docs/error_codes.md`, `docs/test_report.md`, `docs/openapi.json`.
