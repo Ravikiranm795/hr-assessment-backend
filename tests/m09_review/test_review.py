@@ -216,6 +216,16 @@ async def test_snapshot_url_signed_and_erase_candidate_data(client, world, open_
         await db_session.execute(
             text("UPDATE invites SET candidate_phone_enc = 'x' WHERE id = :i"), {"i": invite.id}
         )
+        await db_session.execute(
+            text(
+                "INSERT INTO help_requests (id, org_id, invite_id, reason, note, status) "
+                "VALUES (gen_random_uuid(), :o, :i, 'other', 'my camera is at 12 Main St', 'declined')"
+            ),
+            {"o": world.org.id, "i": invite.id},
+        )
+        await db_session.execute(
+            text("UPDATE attempts SET ip = '203.0.113.9', user_agent = 'UA' WHERE id = :a"), {"a": attempt.id}
+        )
         await db_session.commit()
 
         url = f"{API}/attempts/{attempt.id}/snapshots/{asset.id}/url"
@@ -254,6 +264,15 @@ async def test_snapshot_url_signed_and_erase_candidate_data(client, world, open_
             )
         )[0]
         assert inv["candidate_name"] == "Erased" and inv["candidate_phone_enc"] is None
+        rest = (
+            await _sql(
+                db_session,
+                "SELECT (SELECT note FROM help_requests) AS note, "
+                "(SELECT ip FROM attempts WHERE id = :a) AS ip",
+                a=attempt.id,
+            )
+        )[0]
+        assert rest["note"] is None and rest["ip"] is None
         assert "CANDIDATE_DATA_DELETED" in {
             r["action"] for r in await _sql(db_session, "SELECT action FROM audit_logs")
         }
