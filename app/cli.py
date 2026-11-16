@@ -31,6 +31,8 @@ def _register_all() -> None:
     cli_modules = load_submodules(modules_package, "cli")
     if importlib.util.find_spec("app.jobs.cli") is not None:
         cli_modules.append(importlib.import_module("app.jobs.cli"))
+    if importlib.util.find_spec("seed.cli") is not None:
+        cli_modules.append(importlib.import_module("seed.cli"))
     for module in cli_modules:
         module.register(cli)
 
