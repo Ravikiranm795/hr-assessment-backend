@@ -401,6 +401,13 @@ class ReviewService:
             ),
             {"i": attempt.invite_id, "o": ctx.org_id, "scrub": security.hmac_hash(uuid.uuid4().hex)},
         )
+        # candidate-written free text and network identifiers go too (summary scores and flag counts stay)
+        await session.execute(
+            text("UPDATE help_requests SET note = NULL WHERE invite_id = :i AND org_id = :o"),
+            {"i": attempt.invite_id, "o": ctx.org_id},
+        )
+        attempt.ip = attempt.user_agent = None
+        await session.flush()
         for key in keys:  # after the rows: a failed file delete must not resurrect database rows
             try:
                 await get_storage().delete(key)
