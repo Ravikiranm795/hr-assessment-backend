@@ -46,7 +46,7 @@ Failure modes the spec implies but no task's tests exercise. Each line has a tes
 
 **Files:**
 - Create: `pyproject.toml`, `requirements.txt` (pinned from PyPI), `.env.example`, `docker/Dockerfile`, `docker/docker-compose.yml`, `docker/entrypoint.sh`, `scripts/{lint,test,check_name}.sh`
-- Create: `app/main.py`, `app/core/config.py`, `app/cli.py`, `tests/conftest.py`, `tests/core/test_health.py`, `tests/core/test_name_config.py`
+- Create: `app/main.py`, `app/core/config.py`, `app/cli.py` (typer app that auto-loads every `app/modules/*/cli.py` and `app/jobs/cli.py`, each exposing `register(app: typer.Typer)`; no later task edits `cli.py`), `tests/conftest.py`, `tests/core/test_health.py`, `tests/core/test_name_config.py`
 
 **Interfaces:**
 - Produces: `settings: Settings` (fields from spec 3.5 plus `app_name`, `vendor_name`, `app_slug` derived), `create_app() -> FastAPI` which auto-registers every `app.modules.*.router.router` and sets the OpenAPI title to `settings.app_name`. `GET /health`, `/health/ready`, `/version`.
@@ -61,7 +61,9 @@ Failure modes the spec implies but no task's tests exercise. Each line has a tes
 ### Task 2: Core layer (B1)
 
 **Files:**
-- Create: `app/core/{db,security,errors,audit,flags,deps,pagination,ratelimit,i18n_codes,notifications,email,branding_text}.py`, `app/core/storage/{base,local,s3}.py`, `app/core/ai/{base,mock,registry}.py`
+- Create: `app/core/{db,security,errors,audit,flags,deps,pagination,ratelimit,i18n_codes,notifications,email,branding_text,export}.py`, `app/core/storage/{base,local,s3}.py`, `app/core/ai/{base,mock,registry}.py`
+- `core.audit`, `core.flags`, `core.notifications` write and read with SQLAlchemy Core `text()` against table names (no ORM model imports), because Task 3 runs in parallel. Task 2 tests are pure unit tests. The DB integration test of `record()` lives in Task 3 as `tests/core/test_audit_record.py`.
+- `core.export`: `csv_safe(cell) -> str` (prefix cells starting with `=`, `+`, `-`, `@`), `render_pdf(title: str, html: str) -> bytes` (WeasyPrint). `core.branding_text`: `watermark() -> str`, `STARTER_THEME: dict` (primary, accent, background_style, font_key per spec section 16.3 palette: navy, dark teal, coral, mint background).
 - Test: `tests/core/test_security.py`, `test_errors.py`, `test_audit_redaction.py`, `test_storage.py`, `test_ratelimit.py`
 
 **Interfaces (the frozen contract):**
@@ -146,9 +148,9 @@ Each task below is a fresh subagent. The brief names spec sections, the frozen i
 ### Task 8: M5b Question bank (spec 5.5 `question_bank_items`, flag `question_bank`)
 
 **Files:** `app/modules/m05b_question_bank/*`, `tests/m05b_question_bank/`
-**Interfaces:** Produces `POST/GET/PATCH/DELETE /question-bank`, `POST /question-bank/{id}/add-to-version/{vid}`. Consumes M5's question schema through its service interface only.
+**Interfaces:** Produces `POST/GET/PATCH/DELETE /question-bank` and `GET /question-bank/{id}/as-question`, which returns a body in the shape of M5's create-question request (the frontend posts it to M5). It does not call M5 (Wave 1 runs in parallel).
 
-- [ ] **Step 1:** Failing tests: `test_save_question_from_version_to_bank`, `test_bank_is_org_scoped`, `test_add_bank_item_to_draft_version_only`, `test_flag_off_blocks_bank`, `test_tag_filter`.
+- [ ] **Step 1:** Failing tests: `test_save_question_to_bank`, `test_bank_is_org_scoped`, `test_as_question_returns_create_question_shape`, `test_flag_off_blocks_bank`, `test_tag_filter`.
 - [ ] **Step 2-5:** Run, implement, run (expect PASS), commit `feat(m05b): question bank`.
 
 ### Task 9: M10 Audit APIs and exports (spec 6/M10, 4.5)
@@ -161,7 +163,7 @@ Each task below is a fresh subagent. The brief names spec sections, the frozen i
 
 ### Task 10: AI provider layer (spec 7.1, 7.2, B10 part 1)
 
-**Files:** `app/core_ai/` is NOT allowed (core is frozen). Use `app/modules/m14_ai/{providers/{anthropic,gemini,openai,compatible,cli}.py,prompts/question_gen_v1.py,service.py,router.py,ai_models.json}`, `tests/m14_ai/`
+**Files:** `app/modules/m14_ai/{providers/{anthropic,gemini,openai,compatible,cli}.py,prompts/question_gen_v1.py,service.py,router.py,ai_models.json}`, `tests/m14_ai/`
 **Interfaces:**
 - Produces: `AiService.generate_questions(ctx, req: QuestionGenRequest) -> list[SuggestedQuestion]` (stateless, not stored, at least 10, dedupes, one repair retry), `AiService.score_answer(ctx, question, model_answer, marks, answer_text) -> ScoreResult(fraction, reason, matched, missed)` (never sends personal data), `get_provider(org_ai_settings) -> LLMProvider`. `POST /assessments/ai/generate` and `GET /assessments/ai/options`.
 - CLI provider uses `asyncio.create_subprocess_exec` with an argument list, the prompt on stdin, a timeout, a sanitized environment, and a temp working directory.
@@ -181,7 +183,7 @@ Each task below is a fresh subagent. The brief names spec sections, the frozen i
 ### Task 11: M6 Open roles (spec 6/M6)
 
 **Files:** `app/modules/m06_roles/*`, `tests/m06_roles/`
-**Interfaces:** Produces `RoleService.get_open_linked_role(org_id, role_id) -> (Role, AssessmentVersion)` (raises `ROLE_NOT_OPEN` / `ROLE_HAS_NO_ASSESSMENT`), `link_assessment(...)`, `close(role_id)` (revokes unstarted invites through M7's `InviteService.revoke_unstarted(role_id)`, registered via a service hook, with a stub until Task 12).
+**Interfaces:** Produces `RoleService.get_open_linked_role(org_id, role_id) -> (Role, AssessmentVersion)` (raises `ROLE_NOT_OPEN` / `ROLE_HAS_NO_ASSESSMENT`), `link_assessment(...)`, `close(role_id)` (calls the registry in `app/modules/m06_roles/hooks.py: on_role_close: list[Callable[[UUID], Awaitable[None]]]`; Task 12 registers `InviteService.revoke_unstarted`).
 
 - [ ] **Step 1:** Failing tests: `test_link_replace_keeps_pending_invites_on_old_version`, `test_one_active_link_per_role`, `test_only_published_version_linkable_ASSESSMENT_NOT_PUBLISHED`, **RF-4** `test_link_version_from_other_org_is_404`, `test_delete_only_draft_without_invites`, `test_reassign_owner_in_other_org_404`, `test_close_revokes_unstarted_not_in_progress`, `test_non_owner_cannot_edit_role`.
 - [ ] **Step 2-5:** Run, implement, run, commit `feat(m06): roles`.
@@ -205,7 +207,7 @@ Each task below is a fresh subagent. The brief names spec sections, the frozen i
 ### Task 14: M12 Notifications and gadget framework (spec 6/M12, 4.10, Appendix C and D)
 
 **Files:** `app/modules/m12_dashboard/{router,service,gadgets/{__init__,base,platform_gadgets}.py}`, `tests/m12_dashboard/`
-**Interfaces:** Produces `Gadget` protocol `data(ctx) -> dict`, a registry decorator `@register_gadget(key)`, and the notification endpoints. Gadgets needing later data are registered in Task 18, and in this task their data functions return `{"pending": true}` stubs.
+**Interfaces:** Produces `Gadget` protocol `data(ctx) -> dict`, a registry decorator `@register_gadget(key)`, and the notification endpoints. Gadgets needing later data are registered as `{"pending": true}` stubs in `gadgets/stubs.py`, which Task 18 deletes and replaces.
 
 - [ ] **Step 1:** Failing tests: `test_layout_saved_per_user`, `test_gadget_not_for_role_absent_from_catalog_and_rejected`, `test_unread_count_and_mark_read_all`, `test_notifications_are_user_scoped`, `test_hr_sees_own_scope_oa_org_scope_sa_platform_only`.
 - [ ] **Step 2-5:** Run, implement, run, commit `feat(m12): dashboard framework`.
@@ -231,7 +233,7 @@ Each task below is a fresh subagent. The brief names spec sections, the frozen i
 ### Task 16: M9 Review, decisions, scoring (spec 6/M9, 7.3 auto part)
 
 **Files:** `app/modules/m09_review/*`, `tests/m09_review/`
-**Interfaces:** Produces `ScoringService.score_attempt(attempt_id)` (auto first, sets `scoring_status`, queues AI answers), `ReviewService.get_report(ctx, attempt_id)` (audited view), `snapshot_url(ctx, attempt_id, asset_id)` (60 s, audited), `decide(ctx, attempt_id, decision, note)`, `override_decision(...)`, `erase_candidate_data(ctx, attempt_id, include_identity=False)`.
+**Interfaces:** Produces `app/modules/m09_review/hooks.py` with `ai_scoring_hooks: list[Callable[[UUID], Awaitable[None]]]` (called by `ScoringService` for attempts that have AI-scored answers, and by the `retry_ai_scoring` job; Task 19 registers its runner). Also `ScoringService.score_attempt(attempt_id)` (auto first, sets `scoring_status`, queues AI answers), `ReviewService.get_report(ctx, attempt_id)` (audited view), `snapshot_url(ctx, attempt_id, asset_id)` (60 s, audited), `decide(ctx, attempt_id, decision, note)`, `override_decision(...)`, `erase_candidate_data(ctx, attempt_id, include_identity=False)`.
 
 - [ ] **Step 1:** Failing tests: `test_report_view_is_audited`, `test_non_owner_hr_sees_name_status_decision_only`, `test_sa_cannot_see_answers_or_snapshots`, `test_decision_allowed_once_DECISION_ALREADY_MADE`, `test_oa_override_needs_reason_and_keeps_history`, `test_manual_score_override_audited`, `test_extra_time_only_while_in_progress`, `test_dismiss_flag_with_note`, `test_erase_removes_answers_snapshots_events_phone`, `test_score_percent_and_passed_computed_from_version_pass_mark`, `test_decision_requires_submitted_attempt`.
 - [ ] **Step 2-5:** Run, implement, run, commit `feat(m09): review`.
