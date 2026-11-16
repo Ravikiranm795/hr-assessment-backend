@@ -30,4 +30,7 @@ See ledger: migration hardening (reports_ro column grants, RLS on password_histo
 
 ## Serial-mode checkpoints (single agent, lean tests; supersedes the parallel resume steps above)
 - [x] T7 m05 assessments green (98 passed). [x] T8 m05b question bank (7 tests, commit `feat(m05b)`).
-- Next: T5 m02+m03 -> T6 m04 (needs router.py) -> T10 m14 tests -> gate fixes -> Wave 2 (T11..).
+- [x] T5 m02+m03 (61 tests). [x] T6 m04 (router written, 207 tests). [x] T10 m14 (7 tests, router prefix fixed to /api/v1).
+- Security-review fixes applied: M4 SMTP host DNS guard in prod (`netguard.py`); password omitted = keep (no plaintext compare).
+- Decision to confirm: AI `base_url` (openai-compatible) is still not DNS-restricted in prod (self-hosted LLMs); SMTP is.
+- Next: Wave 1 gate fixes -> Wave 2 (T11 roles ..).
