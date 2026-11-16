@@ -145,7 +145,10 @@ def test_catalog_survives_garbage_file(tmp_path, monkeypatch, content):
     path = tmp_path / "ai_models.json"
     path.write_text(content)
     monkeypatch.setattr(catalog, "MODELS_FILE", path)
-    assert next(p for p in catalog.provider_catalog() if p["id"] == "claude")["default_model"] == "claude-haiku-5-5"
+    assert (
+        next(p for p in catalog.provider_catalog() if p["id"] == "claude")["default_model"]
+        == "claude-haiku-5-5"
+    )
 
 
 def test_catalog_reads_defaults_from_file(tmp_path, monkeypatch):

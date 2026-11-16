@@ -116,8 +116,10 @@ def inspect_image(data: bytes, *, declared: str = "", allow_ico: bool = False) -
         content_type, dims = "image/x-icon", _ico
     else:
         raise _invalid("unsupported_type")
-    if declared not in _NEUTRAL_TYPES and declared != content_type and not (
-        content_type == "image/x-icon" and declared in _ICO_TYPES
+    if (
+        declared not in _NEUTRAL_TYPES
+        and declared != content_type
+        and not (content_type == "image/x-icon" and declared in _ICO_TYPES)
     ):
         raise _invalid("content_type_mismatch")
     width, height = dims(data)

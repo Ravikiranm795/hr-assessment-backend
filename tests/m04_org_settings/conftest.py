@@ -109,13 +109,13 @@ async def audit_rows(session: AsyncSession, org_id, action: str) -> list[dict]:
 
 
 async def scalar(session: AsyncSession, sql: str, **params: Any) -> Any:
-    # fresh snapshot: the app wrote through its own connection
-    await session.rollback()
+    # fresh snapshot (the app wrote through its own connection); commit, not rollback, keeps ORM objects loaded
+    await session.commit()
     return (await session.execute(text(sql), params)).scalar_one_or_none()
 
 
 async def row(session: AsyncSession, sql: str, **params: Any) -> dict | None:
-    await session.rollback()
+    await session.commit()
     found = (await session.execute(text(sql), params)).mappings().first()
     return dict(found) if found else None
 
@@ -159,13 +159,18 @@ def jpeg_bytes(width: int = 40, height: int = 30) -> bytes:
 
 
 def ico_bytes() -> bytes:
-    return b"\x00\x00\x01\x00\x01\x00" + b"\x10\x10\x00\x00\x01\x00\x20\x00" + b"\x00" * 8 + b"\x16\x00\x00\x00"
+    return (
+        b"\x00\x00\x01\x00\x01\x00" + b"\x10\x10\x00\x00\x01\x00\x20\x00" + b"\x00" * 8 + b"\x16\x00\x00\x00"
+    )
 
 
 def pdf_bytes(extra: bytes = b"") -> bytes:
-    return b"%PDF-1.4\n1 0 obj\n<< /Type /Catalog >>\nendobj\n" + extra + b"\ntrailer\n<< /Root 1 0 R >>\n%%EOF\n"
+    return (
+        b"%PDF-1.4\n1 0 obj\n<< /Type /Catalog >>\nendobj\n"
+        + extra
+        + b"\ntrailer\n<< /Root 1 0 R >>\n%%EOF\n"
+    )
 
 
 def multipart(name: str, filename: str, data: bytes, content_type: str) -> dict:
     return {"files": {name: (filename, io.BytesIO(data), content_type)}}
-

@@ -26,7 +26,13 @@ async def test_profile_get_and_patch(http, tenant, db_session):
 
 @pytest.mark.parametrize(
     "body",
-    [{"name": ""}, {"name": "x" * 201}, {"timezone": "Mars/Base"}, {"locale": "klingon-xx-yy"}, {"slug": "x"}],
+    [
+        {"name": ""},
+        {"name": "x" * 201},
+        {"timezone": "Mars/Base"},
+        {"locale": "klingon-xx-yy"},
+        {"slug": "x"},
+    ],
 )
 async def test_profile_rejects_bad_input(http, tenant, body):
     r = await http.patch(f"{API}/profile", headers=tenant.headers, json=body)
@@ -59,7 +65,9 @@ async def test_security_settings_validation(http, tenant, db_session):
     # partial update leaves everything else alone
     await http.patch(base, headers=tenant.headers, json={"session_timeout_minutes": 60})
     again = (await http.get(base, headers=tenant.headers)).json()
-    assert again["allowed_google_domains"] == ["example.com", "b.io"] and again["session_timeout_minutes"] == 60
+    assert (
+        again["allowed_google_domains"] == ["example.com", "b.io"] and again["session_timeout_minutes"] == 60
+    )
 
     audits = await audit_rows(db_session, tenant.org.id, "SETTINGS_UPDATED")
     assert len(audits) == 2
@@ -91,13 +99,17 @@ async def test_security_settings_rejects_weak_or_malformed(http, tenant, body):
     assert r.json()["error"]["code"] == "VALIDATION_ERROR"
 
 
-@pytest.mark.parametrize("days,status", [(6, 422), (7, 200), (90, 200), (730, 200), (731, 422), (0, 422), (-5, 422)])
+@pytest.mark.parametrize(
+    "days,status", [(6, 422), (7, 200), (90, 200), (730, 200), (731, 422), (0, 422), (-5, 422)]
+)
 async def test_retention_range_7_to_730(http, tenant, db_session, days, status):
     r = await http.patch(f"{API}/settings/retention", headers=tenant.headers, json={"retention_days": days})
     assert r.status_code == status
     if status == 200:
         assert r.json() == {"retention_days": days}
-        saved = await row(db_session, "SELECT retention_days FROM organizations WHERE id = :i", i=tenant.org.id)
+        saved = await row(
+            db_session, "SELECT retention_days FROM organizations WHERE id = :i", i=tenant.org.id
+        )
         assert saved["retention_days"] == days
     else:
         assert r.json()["error"]["code"] == "VALIDATION_ERROR"
@@ -106,14 +118,18 @@ async def test_retention_range_7_to_730(http, tenant, db_session, days, status):
 
 async def test_retention_requires_integer(http, tenant):
     for bad in ("ninety", 90.5, None, True):
-        r = await http.patch(f"{API}/settings/retention", headers=tenant.headers, json={"retention_days": bad})
+        r = await http.patch(
+            f"{API}/settings/retention", headers=tenant.headers, json={"retention_days": bad}
+        )
         assert r.status_code == 422, bad
     r = await http.patch(f"{API}/settings/retention", headers=tenant.headers, json={})
     assert r.status_code == 422
 
 
 async def test_retention_get_default(http, tenant):
-    assert (await http.get(f"{API}/settings/retention", headers=tenant.headers)).json() == {"retention_days": 90}
+    assert (await http.get(f"{API}/settings/retention", headers=tenant.headers)).json() == {
+        "retention_days": 90
+    }
 
 
 @pytest.mark.parametrize("hours,status", [(0, 422), (1, 200), (72, 200), (720, 200), (721, 422)])

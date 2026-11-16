@@ -21,11 +21,21 @@ ROUTES = [
     ("GET", f"{API}/settings/invites", None, "settings"),
     ("PATCH", f"{API}/settings/invites", {"invite_default_expiry_hours": 72}, "settings"),
     ("GET", f"{API}/settings/email", None, "email_sending"),
-    ("PUT", f"{API}/settings/email", {"host": "h.example.com", "port": 25, "security": "none", "sender_email": "a@b.co"}, "email_sending"),
+    (
+        "PUT",
+        f"{API}/settings/email",
+        {"host": "h.example.com", "port": 25, "security": "none", "sender_email": "a@b.co"},
+        "email_sending",
+    ),
     ("POST", f"{API}/settings/email/test", {"to": "a@b.co"}, "email_sending"),
     ("GET", f"{API}/settings/ai/providers", None, "ai_provider_setup"),
     ("GET", f"{API}/settings/ai", None, "ai_provider_setup"),
-    ("PUT", f"{API}/settings/ai", {"provider": "cli", "mode": "cli", "cli_command_key": "claude"}, "ai_provider_setup"),
+    (
+        "PUT",
+        f"{API}/settings/ai",
+        {"provider": "cli", "mode": "cli", "cli_command_key": "claude"},
+        "ai_provider_setup",
+    ),
     ("POST", f"{API}/settings/ai/test", None, "ai_provider_setup"),
     ("GET", f"{API}/ai-usage", None, "ai_provider_setup"),
     ("GET", f"{API}/branding", None, "org_branding"),
@@ -89,7 +99,13 @@ async def test_openapi_declares_roles_and_flags_for_every_m4_route(http):
                 continue
             seen += 1
             assert op["x-roles"] == ["org_admin"], (method, path)
-            assert op["x-required-flag"] in {"settings", "email_sending", "ai_provider_setup", "org_branding", "policy_documents"}
+            assert op["x-required-flag"] in {
+                "settings",
+                "email_sending",
+                "ai_provider_setup",
+                "org_branding",
+                "policy_documents",
+            }
             assert op["summary"] and op["description"], (method, path)
             assert "403" in op["responses"] or "401" in op["responses"], (method, path)
-    assert seen >= 31
+    assert seen == 30  # the 30 routes of the spec 6/M4 table

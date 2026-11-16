@@ -66,14 +66,16 @@ def _org_id(ctx: TenantContext) -> UUID:
     return ctx.org_id
 
 
-# =========================================================================== profile, security, retention, invites
+# ===== profile, security, retention, invites
 
 
 class OrgSettingsService:
     def __init__(self, session: AsyncSession):
         self.session = session
 
-    async def _apply(self, ctx: TenantContext, org: Any, changes: dict[str, Any], audit_names: dict[str, str] | None = None) -> None:
+    async def _apply(
+        self, ctx: TenantContext, org: Any, changes: dict[str, Any], audit_names: dict[str, str] | None = None
+    ) -> None:
         """Set ``changes`` on ``org`` and audit only the fields whose value changed."""
         names = audit_names or {}
         before: dict[str, Any] = {}
@@ -87,7 +89,9 @@ class OrgSettingsService:
             setattr(org, field, value)
         if after:
             await self.session.flush()
-            await audit.record(ctx, self.session, audit.SETTINGS_UPDATED, "organization", org.id, before=before, after=after)
+            await audit.record(
+                ctx, self.session, audit.SETTINGS_UPDATED, "organization", org.id, before=before, after=after
+            )
 
     # ---- profile
     async def get_profile(self, ctx: TenantContext) -> Any:
@@ -121,7 +125,11 @@ class OrgSettingsService:
         org = await _org(self.session, ctx)
         changes = body.model_dump(exclude_none=True, exclude={"password_policy"})
         if body.password_policy is not None:
-            merged = {**DEFAULT_POLICY, **(org.password_policy or {}), **body.password_policy.model_dump(exclude_none=True)}
+            merged = {
+                **DEFAULT_POLICY,
+                **(org.password_policy or {}),
+                **body.password_policy.model_dump(exclude_none=True),
+            }
             changes["password_policy"] = merged
         # `pw_policy`: an audit key named `password_policy` would be redacted by the `password*` rule.
         await self._apply(ctx, org, changes, {"password_policy": "pw_policy"})
@@ -181,21 +189,35 @@ class EmailSettingsService:
     async def get(self, ctx: TenantContext) -> schemas.EmailSettingsOut:
         return self._out(await repo.get_email(self.session, _org_id(ctx)))
 
+    @staticmethod
+    def _same_password(blob: str, plain: str) -> bool:
+        try:
+            return security.decrypt_field(blob) == plain
+        except ValueError:
+            return False
+
     async def put(self, ctx: TenantContext, body: schemas.EmailSettingsIn) -> schemas.EmailSettingsOut:
         org_id = _org_id(ctx)
         row = await repo.get_email(self.session, org_id)
         new = body.model_dump(include=set(self.FIELDS))
         new["sender_email"] = str(new["sender_email"])
         old_enc = row.password_enc if row else None
-        if body.password is None:
-            new_enc = old_enc
+        if body.password is None or (old_enc and self._same_password(old_enc, body.password)):
+            new_enc = old_enc  # omitted or unchanged (ciphertext is randomized, so compare plaintext)
         else:
             new_enc = security.encrypt_field(body.password) if body.password else None
         before = {f: getattr(row, f) if row else None for f in self.FIELDS} | {"password_enc": old_enc}
         after = new | {"password_enc": new_enc}
-        reset = row is None or any(getattr(row, f) != new[f] for f in ("host", "port", "security", "username")) or new_enc != old_enc
+        reset = (
+            row is None
+            or any(getattr(row, f) != new[f] for f in ("host", "port", "security", "username"))
+            or new_enc != old_enc
+        )
         if row is None:
-            row = await repo.add(self.session, OrgEmailSettings(org_id=org_id, **new, password_enc=new_enc, updated_by=ctx.user_id))
+            row = await repo.add(
+                self.session,
+                OrgEmailSettings(org_id=org_id, **new, password_enc=new_enc, updated_by=ctx.user_id),
+            )
         else:
             for field, value in new.items():
                 setattr(row, field, value)
@@ -204,7 +226,15 @@ class EmailSettingsService:
         if reset:
             row.verified_at = None
         await self.session.flush()
-        await audit.record(ctx, self.session, audit.EMAIL_SETTINGS_UPDATED, "org_email_settings", org_id, before=before, after=after)
+        await audit.record(
+            ctx,
+            self.session,
+            audit.EMAIL_SETTINGS_UPDATED,
+            "org_email_settings",
+            org_id,
+            before=before,
+            after=after,
+        )
         return self._out(row)
 
     async def send_test(self, ctx: TenantContext, to: str) -> schemas.EmailTestOut:
@@ -254,7 +284,9 @@ class EmailSettingsService:
             result="success" if reason is None else "failure",
             reason=reason,
         )
-        return schemas.EmailTestOut(sent=reason is None, verified_at=row.verified_at if reason is None else None, reason=reason)
+        return schemas.EmailTestOut(
+            sent=reason is None, verified_at=row.verified_at if reason is None else None, reason=reason
+        )
 
 
 # =========================================================================== AI
@@ -334,7 +366,12 @@ class AiSettingsService:
         model = body.model or catalog.default_model(provider)
         if not model:
             raise _field_error("model", "required")
-        keep = row is not None and row.mode == "api" and row.provider == provider and (row.base_url or None) == (body.base_url or None)
+        keep = (
+            row is not None
+            and row.mode == "api"
+            and row.provider == provider
+            and (row.base_url or None) == (body.base_url or None)
+        )
         if body.api_key is not None:
             return model, "set"
         if keep and row.api_key_enc:
@@ -348,8 +385,18 @@ class AiSettingsService:
         row = await repo.get_ai(self.session, org_id)
         model, key_action = self._validate(body, row)
         old_enc = row.api_key_enc if row else None
-        new_enc = security.encrypt_field(body.api_key) if key_action == "set" and body.api_key else old_enc if key_action == "keep" else None
-        cap = body.monthly_call_cap if ("monthly_call_cap" in body.model_fields_set or row is None) else row.monthly_call_cap
+        new_enc = (
+            security.encrypt_field(body.api_key)
+            if key_action == "set" and body.api_key
+            else old_enc
+            if key_action == "keep"
+            else None
+        )
+        cap = (
+            body.monthly_call_cap
+            if ("monthly_call_cap" in body.model_fields_set or row is None)
+            else row.monthly_call_cap
+        )
         new = {
             "provider": body.provider,
             "model": model,
@@ -361,9 +408,18 @@ class AiSettingsService:
         fields = tuple(new)
         before = {f: getattr(row, f) if row else None for f in fields} | {"api_key_enc": old_enc}
         after = new | {"api_key_enc": new_enc}
-        changed = row is None or any(getattr(row, f) != new[f] for f in ("provider", "model", "mode", "base_url", "cli_command_key")) or new_enc != old_enc
+        changed = (
+            row is None
+            or any(
+                getattr(row, f) != new[f]
+                for f in ("provider", "model", "mode", "base_url", "cli_command_key")
+            )
+            or new_enc != old_enc
+        )
         if row is None:
-            row = await repo.add(self.session, OrgAiSettings(org_id=org_id, **new, api_key_enc=new_enc, updated_by=ctx.user_id))
+            row = await repo.add(
+                self.session, OrgAiSettings(org_id=org_id, **new, api_key_enc=new_enc, updated_by=ctx.user_id)
+            )
         else:
             for field, value in new.items():
                 setattr(row, field, value)
@@ -372,7 +428,15 @@ class AiSettingsService:
         if changed:
             row.verified_at = None
         await self.session.flush()
-        await audit.record(ctx, self.session, audit.AI_SETTINGS_UPDATED, "org_ai_settings", org_id, before=before, after=after)
+        await audit.record(
+            ctx,
+            self.session,
+            audit.AI_SETTINGS_UPDATED,
+            "org_ai_settings",
+            org_id,
+            before=before,
+            after=after,
+        )
         return self._out(row)
 
     async def test_connection(self, ctx: TenantContext) -> schemas.AiTestOut:
@@ -398,9 +462,15 @@ class AiSettingsService:
             row.verified_at = verified
             await self.session.flush()
             await audit.record(
-                ctx, self.session, audit.AI_SETTINGS_UPDATED, "org_ai_settings", org_id,
-                before=before, after={"verified_at": _iso(verified)}, reason="connection_test",
-            )  # fmt: skip
+                ctx,
+                self.session,
+                audit.AI_SETTINGS_UPDATED,
+                "org_ai_settings",
+                org_id,
+                before=before,
+                after={"verified_at": _iso(verified)},
+                reason="connection_test",
+            )
         else:
             row.verified_at = verified
         return schemas.AiTestOut(ok=reason is None, verified_at=row.verified_at, reason=reason)
@@ -437,13 +507,17 @@ class BrandingService:
         return {
             "primary_color": (theme.primary_color if theme else None) or STARTER_THEME["primary"],
             "accent_color": (theme.accent_color if theme else None) or STARTER_THEME["accent"],
-            "background_style": (theme.background_style if theme else None) or STARTER_THEME["background_style"],
+            "background_style": (theme.background_style if theme else None)
+            or STARTER_THEME["background_style"],
             "font_key": (theme.font_key if theme else None) or STARTER_THEME["font_key"],
         }
 
     @staticmethod
     def _checks(primary: str, accent: str) -> dict[str, dict[str, Any]]:
-        return {"primary": check_text_contrast(primary).as_dict(), "accent": check_text_contrast(accent).as_dict()}
+        return {
+            "primary": check_text_contrast(primary).as_dict(),
+            "accent": check_text_contrast(accent).as_dict(),
+        }
 
     async def _asset_url(self, org_id: UUID, asset_id: UUID | None) -> str | None:
         if asset_id is None:
@@ -471,7 +545,9 @@ class BrandingService:
         org_id = _org_id(ctx)
         theme = await repo.get_theme(self.session, org_id, for_update=True)
         if theme is None:
-            theme = await repo.add(self.session, BrandingTheme(scope="org", org_id=org_id, updated_by=ctx.user_id))
+            theme = await repo.add(
+                self.session, BrandingTheme(scope="org", org_id=org_id, updated_by=ctx.user_id)
+            )
         return theme
 
     async def copy_starter_theme(self, org_id: UUID) -> None:
@@ -495,10 +571,20 @@ class BrandingService:
         state["favicon_asset_id"] = str(theme.favicon_asset_id) if theme and theme.favicon_asset_id else None
         return state
 
-    async def _save(self, ctx: TenantContext, theme: BrandingTheme, before: dict[str, Any]) -> schemas.BrandingOut:
+    async def _save(
+        self, ctx: TenantContext, theme: BrandingTheme, before: dict[str, Any]
+    ) -> schemas.BrandingOut:
         theme.updated_by = ctx.user_id
         await self.session.flush()
-        await audit.record(ctx, self.session, audit.BRANDING_UPDATED, "branding_theme", theme.id, before=before, after=self._audit_state(theme))
+        await audit.record(
+            ctx,
+            self.session,
+            audit.BRANDING_UPDATED,
+            "branding_theme",
+            theme.id,
+            before=before,
+            after=self._audit_state(theme),
+        )
         return await self._view(_org_id(ctx), theme)
 
     async def _drop_asset(self, org_id: UUID, asset_id: UUID | None) -> None:
@@ -513,13 +599,25 @@ class BrandingService:
             result = check_text_contrast(color)
             if name in fields and not result.passes:
                 raise AppError(
-                    "BRANDING_CONTRAST_TOO_LOW", 422,
-                    {"field": name, "ratio": result.as_dict()["ratio"], "minimum": MIN_RATIO, "text_color": result.text_color},
-                )  # fmt: skip
+                    "BRANDING_CONTRAST_TOO_LOW",
+                    422,
+                    {
+                        "field": name,
+                        "ratio": result.as_dict()["ratio"],
+                        "minimum": MIN_RATIO,
+                        "text_color": result.text_color,
+                    },
+                )
 
     async def put(self, ctx: TenantContext, body: schemas.BrandingIn) -> schemas.BrandingOut:
         org_id = _org_id(ctx)
-        provided = {k: v for k, v in body.model_dump(include={"primary_color", "accent_color", "background_style", "font_key"}).items() if v is not None}
+        provided = {
+            k: v
+            for k, v in body.model_dump(
+                include={"primary_color", "accent_color", "background_style", "font_key"}
+            ).items()
+            if v is not None
+        }
         values = {**self._values(await repo.get_theme(self.session, org_id)), **provided}
         self._check_colors(values["primary_color"], values["accent_color"], set(provided))  # type: ignore[arg-type]
         assets: dict[str, UUID | None] = {}
@@ -541,7 +639,9 @@ class BrandingService:
                 await self._drop_asset(org_id, old_id)
         return await self._save(ctx, theme, before)
 
-    async def validate(self, ctx: TenantContext, body: schemas.BrandingValidateIn) -> schemas.BrandingValidateOut:
+    async def validate(
+        self, ctx: TenantContext, body: schemas.BrandingValidateIn
+    ) -> schemas.BrandingValidateOut:
         values = self._values(await repo.get_theme(self.session, _org_id(ctx)))
         primary = body.primary_color or values["primary_color"]
         accent = body.accent_color or values["accent_color"]
@@ -566,10 +666,16 @@ class BrandingService:
             asset = await repo.add(
                 self.session,
                 Asset(
-                    org_id=org_id, kind=kind, storage_key=stored.key, content_type=stored.content_type,
-                    size_bytes=stored.size_bytes, sha256=stored.sha256, encrypted=False, created_by=ctx.user_id,
+                    org_id=org_id,
+                    kind=kind,
+                    storage_key=stored.key,
+                    content_type=stored.content_type,
+                    size_bytes=stored.size_bytes,
+                    sha256=stored.sha256,
+                    encrypted=False,
+                    created_by=ctx.user_id,
                 ),
-            )  # fmt: skip
+            )
             theme = await self._theme_for_update(ctx)
             before = self._audit_state(theme)
             field = f"{kind}_asset_id"
@@ -607,53 +713,90 @@ class DocumentService:
     def _out(doc: Document, stats: dict[str, Any]) -> schemas.DocumentOut:
         current = stats["current"]
         return schemas.DocumentOut(
-            id=doc.id, doc_type=doc.doc_type, title=doc.title, version_count=stats["count"],
+            id=doc.id,
+            doc_type=doc.doc_type,
+            title=doc.title,
+            version_count=stats["count"],
             current_version_id=current.id if current else None,
             current_version_no=current.version_no if current else None,
-            created_at=doc.created_at, updated_at=doc.updated_at,
-        )  # fmt: skip
+            created_at=doc.created_at,
+            updated_at=doc.updated_at,
+        )
 
     async def _out_one(self, doc: Document) -> schemas.DocumentOut:
         stats = (await repo.version_stats(self.session, [doc.id]))[doc.id]
         return self._out(doc, stats)
 
     async def create(self, ctx: TenantContext, body: schemas.DocumentCreate) -> schemas.DocumentOut:
-        doc = await repo.add(self.session, Document(org_id=_org_id(ctx), doc_type=body.doc_type, title=body.title, created_by=ctx.user_id))
-        await audit.record(ctx, self.session, audit.DOCUMENT_CREATED, "document", doc.id, after={"doc_type": doc.doc_type, "title": doc.title})
+        doc = await repo.add(
+            self.session,
+            Document(org_id=_org_id(ctx), doc_type=body.doc_type, title=body.title, created_by=ctx.user_id),
+        )
+        await audit.record(
+            ctx,
+            self.session,
+            audit.DOCUMENT_CREATED,
+            "document",
+            doc.id,
+            after={"doc_type": doc.doc_type, "title": doc.title},
+        )
         await self.session.refresh(doc)
         return await self._out_one(doc)
 
-    async def list(self, ctx: TenantContext, *, doc_type: str | None, order: list[Any], offset: int, limit: int) -> tuple[list[schemas.DocumentOut], int]:
-        docs, total = await repo.list_documents(self.session, _org_id(ctx), doc_type=doc_type, order=order, offset=offset, limit=limit)
+    async def list(
+        self, ctx: TenantContext, *, doc_type: str | None, order: list[Any], offset: int, limit: int
+    ) -> tuple[list[schemas.DocumentOut], int]:
+        docs, total = await repo.list_documents(
+            self.session, _org_id(ctx), doc_type=doc_type, order=order, offset=offset, limit=limit
+        )
         stats = await repo.version_stats(self.session, [d.id for d in docs])
         return [self._out(d, stats[d.id]) for d in docs], total
 
     async def get(self, ctx: TenantContext, doc_id: UUID) -> schemas.DocumentOut:
         return await self._out_one(await self._doc(ctx, doc_id))
 
-    async def update(self, ctx: TenantContext, doc_id: UUID, body: schemas.DocumentPatch) -> schemas.DocumentOut:
+    async def update(
+        self, ctx: TenantContext, doc_id: UUID, body: schemas.DocumentPatch
+    ) -> schemas.DocumentOut:
         doc = await self._doc(ctx, doc_id, for_update=True)
         changes = body.model_dump(exclude_none=True)
-        if "doc_type" in changes and changes["doc_type"] != doc.doc_type and await repo.has_published(self.session, doc.id):
-            raise AppError("CONFLICT", 409, {"reason": "document_has_published_version"})  # consent refers to versions
+        if (
+            "doc_type" in changes
+            and changes["doc_type"] != doc.doc_type
+            and await repo.has_published(self.session, doc.id)
+        ):
+            raise AppError(
+                "CONFLICT", 409, {"reason": "document_has_published_version"}
+            )  # consent refers to versions
         before = {k: getattr(doc, k) for k in changes if getattr(doc, k) != changes[k]}
         for field in before:
             setattr(doc, field, changes[field])
         if before:
             await self.session.flush()
             await audit.record(
-                ctx, self.session, audit.SETTINGS_UPDATED, "document", doc.id,
-                before=before, after={k: changes[k] for k in before},
-            )  # fmt: skip
+                ctx,
+                self.session,
+                audit.SETTINGS_UPDATED,
+                "document",
+                doc.id,
+                before=before,
+                after={k: changes[k] for k in before},
+            )
             await self.session.refresh(doc)
         return await self._out_one(doc)
 
     async def _version_out(self, org_id: UUID, version: DocumentVersion) -> schemas.VersionOut:
         return schemas.VersionOut(
-            id=version.id, document_id=version.document_id, version_no=version.version_no, status=version.status,
-            content_html=version.content_html, pdf_url=await BrandingService(self.session)._asset_url(org_id, version.pdf_asset_id),
-            published_at=version.published_at, published_by=version.published_by, created_at=version.created_at,
-        )  # fmt: skip
+            id=version.id,
+            document_id=version.document_id,
+            version_no=version.version_no,
+            status=version.status,
+            content_html=version.content_html,
+            pdf_url=await BrandingService(self.session)._asset_url(org_id, version.pdf_asset_id),
+            published_at=version.published_at,
+            published_by=version.published_by,
+            created_at=version.created_at,
+        )
 
     async def create_version(
         self, ctx: TenantContext, doc_id: UUID, *, html: str | None = None, pdf: UploadFile | None = None
@@ -678,21 +821,40 @@ class DocumentService:
                 pdf_asset = await repo.add(
                     self.session,
                     Asset(
-                        org_id=org_id, kind="doc_pdf", storage_key=stored.key, content_type=stored.content_type,
-                        size_bytes=stored.size_bytes, sha256=stored.sha256, encrypted=False, created_by=ctx.user_id,
+                        org_id=org_id,
+                        kind="doc_pdf",
+                        storage_key=stored.key,
+                        content_type=stored.content_type,
+                        size_bytes=stored.size_bytes,
+                        sha256=stored.sha256,
+                        encrypted=False,
+                        created_by=ctx.user_id,
                     ),
-                )  # fmt: skip
+                )
             version = await repo.add(
                 self.session,
                 DocumentVersion(
-                    document_id=doc.id, version_no=await repo.next_version_no(self.session, doc.id), content_html=content_html,
-                    pdf_asset_id=pdf_asset.id if pdf_asset else None, status="draft", created_by=ctx.user_id,
+                    document_id=doc.id,
+                    version_no=await repo.next_version_no(self.session, doc.id),
+                    content_html=content_html,
+                    pdf_asset_id=pdf_asset.id if pdf_asset else None,
+                    status="draft",
+                    created_by=ctx.user_id,
                 ),
-            )  # fmt: skip
+            )
             await audit.record(
-                ctx, self.session, audit.DOCUMENT_VERSION_CREATED, "document_version", version.id,
-                after={"document_id": str(doc.id), "version_no": version.version_no, "kind": "pdf" if pdf_asset else "html", "content_html": content_html},
-            )  # fmt: skip
+                ctx,
+                self.session,
+                audit.DOCUMENT_VERSION_CREATED,
+                "document_version",
+                version.id,
+                after={
+                    "document_id": str(doc.id),
+                    "version_no": version.version_no,
+                    "kind": "pdf" if pdf_asset else "html",
+                    "content_html": content_html,
+                },
+            )
         except Exception:
             if stored_key:
                 await storage.delete(stored_key)
@@ -706,7 +868,9 @@ class DocumentService:
         items = [await self._version_out(_org_id(ctx), v) for v in versions]
         return schemas.VersionListOut(items=items, total=len(items))
 
-    async def publish_version(self, ctx: TenantContext, doc_id: UUID | str, version_id: UUID | str) -> DocumentVersion:
+    async def publish_version(
+        self, ctx: TenantContext, doc_id: UUID | str, version_id: UUID | str
+    ) -> DocumentVersion:
         """Interface (also used by M8 consent): a published version never changes again."""
         doc = await self._doc(ctx, doc_id, for_update=True)
         version = await repo.get_version(self.session, doc.id, _uuid(version_id), for_update=True)
@@ -719,9 +883,14 @@ class DocumentService:
         version.published_by = ctx.user_id
         await self.session.flush()
         await audit.record(
-            ctx, self.session, audit.DOCUMENT_PUBLISHED, "document_version", version.id,
-            before={"status": "draft"}, after={"status": "published", "document_id": str(doc.id), "version_no": version.version_no},
-        )  # fmt: skip
+            ctx,
+            self.session,
+            audit.DOCUMENT_PUBLISHED,
+            "document_version",
+            version.id,
+            before={"status": "draft"},
+            after={"status": "published", "document_id": str(doc.id), "version_no": version.version_no},
+        )
         await self.session.refresh(version)
         return version
 

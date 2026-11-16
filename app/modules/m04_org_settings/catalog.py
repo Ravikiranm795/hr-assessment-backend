@@ -20,11 +20,20 @@ CLAUDE, GEMINI, OPENAI, OPENAI_COMPATIBLE, CLI = "claude", "gemini", "openai", "
 PROVIDER_IDS: tuple[str, ...] = (CLAUDE, GEMINI, OPENAI, OPENAI_COMPATIBLE, CLI)
 API_PROVIDERS: tuple[str, ...] = (CLAUDE, GEMINI, OPENAI, OPENAI_COMPATIBLE)
 
-_ALIASES = {"anthropic": CLAUDE, "google": GEMINI, "openai_compatible": OPENAI_COMPATIBLE, "compatible": OPENAI_COMPATIBLE}
+_ALIASES = {
+    "anthropic": CLAUDE,
+    "google": GEMINI,
+    "openai_compatible": OPENAI_COMPATIBLE,
+    "compatible": OPENAI_COMPATIBLE,
+}
 
 # Light, cheap defaults (spec 7.1). Used when ai_models.json is missing or does not name a model.
 _FALLBACK: dict[str, dict[str, Any]] = {
-    CLAUDE: {"label": "Claude (Anthropic)", "default_model": "claude-haiku-5-5", "models": ["claude-haiku-5-5"]},
+    CLAUDE: {
+        "label": "Claude (Anthropic)",
+        "default_model": "claude-haiku-5-5",
+        "models": ["claude-haiku-5-5"],
+    },
     GEMINI: {"label": "Gemini (Google)", "default_model": "gemini-2.5-flash", "models": ["gemini-2.5-flash"]},
     OPENAI: {"label": "OpenAI", "default_model": "gpt-5-mini", "models": ["gpt-5-mini"]},
     OPENAI_COMPATIBLE: {"label": "OpenAI-compatible endpoint", "default_model": None, "models": []},
@@ -61,7 +70,11 @@ def _load_overrides() -> dict[str, dict[str, Any]]:
         if not isinstance(entry, dict):
             continue
         default = next(
-            (entry[k].strip() for k in ("default_model", "default", "model") if isinstance(entry.get(k), str) and entry[k].strip()),
+            (
+                entry[k].strip()
+                for k in ("default_model", "default", "model")
+                if isinstance(entry.get(k), str) and entry[k].strip()
+            ),
             None,
         )
         models = _model_ids(entry.get("models"))

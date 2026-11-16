@@ -48,7 +48,9 @@ async def test_smtp_password_write_only_masked_on_read(http, tenant, db_session)
     body = {k: v for k, v in SMTP.items() if k != "password"} | {"port": 2525}
     kept = await http.put(f"{API}/settings/email", headers=tenant.headers, json=body)
     assert kept.json()["password_set"] is True and kept.json()["port"] == 2525
-    stored = await row(db_session, "SELECT password_enc FROM org_email_settings WHERE org_id = :o", o=tenant.org.id)
+    stored = await row(
+        db_session, "SELECT password_enc FROM org_email_settings WHERE org_id = :o", o=tenant.org.id
+    )
     assert security.decrypt_field(stored["password_enc"]) == SMTP["password"]
     cleared = await http.put(f"{API}/settings/email", headers=tenant.headers, json=body | {"password": ""})
     assert cleared.json()["password_set"] is False
@@ -90,11 +92,15 @@ async def test_email_host_rejects_internal_ip_in_prod(http, tenant, monkeypatch)
 
 async def test_changing_smtp_target_resets_verified(http, tenant, db_session, outbox):
     await http.put(f"{API}/settings/email", headers=tenant.headers, json=SMTP)
-    sent = await http.post(f"{API}/settings/email/test", headers=tenant.headers, json={"to": "me@example.com"})
+    sent = await http.post(
+        f"{API}/settings/email/test", headers=tenant.headers, json={"to": "me@example.com"}
+    )
     assert sent.json()["verified_at"]
     same = await http.put(f"{API}/settings/email", headers=tenant.headers, json=SMTP | {"enabled": False})
     assert same.json()["verified_at"] is not None  # only `enabled` changed
-    moved = await http.put(f"{API}/settings/email", headers=tenant.headers, json=SMTP | {"host": "other.example.com"})
+    moved = await http.put(
+        f"{API}/settings/email", headers=tenant.headers, json=SMTP | {"host": "other.example.com"}
+    )
     assert moved.json()["verified_at"] is None
 
 
@@ -103,14 +109,20 @@ async def test_email_test_send_audited_and_rate_limited(http, tenant, db_session
     await http.put(f"{API}/settings/email", headers=tenant.headers, json=SMTP)
 
     for _ in range(2):
-        r = await http.post(f"{API}/settings/email/test", headers=tenant.headers, json={"to": "me@example.com"})
+        r = await http.post(
+            f"{API}/settings/email/test", headers=tenant.headers, json={"to": "me@example.com"}
+        )
         assert r.status_code == 200 and r.json()["sent"] is True
     assert len(outbox.outbox) == 2
     smtp, message = outbox.outbox[0]
-    assert message.to == "me@example.com" and smtp.password == SMTP["password"] and smtp.security == "starttls"
+    assert (
+        message.to == "me@example.com" and smtp.password == SMTP["password"] and smtp.security == "starttls"
+    )
     assert smtp.sender_email == "hr@example.com"
 
-    limited = await http.post(f"{API}/settings/email/test", headers=tenant.headers, json={"to": "me@example.com"})
+    limited = await http.post(
+        f"{API}/settings/email/test", headers=tenant.headers, json={"to": "me@example.com"}
+    )
     assert limited.status_code == 429
     assert limited.json()["error"]["code"] == "RATE_LIMITED"
     assert limited.json()["error"]["details"]["retry_after_sec"] >= 1
@@ -120,7 +132,9 @@ async def test_email_test_send_audited_and_rate_limited(http, tenant, db_session
     assert len(audits) == 2 and audits[0]["result"] == "success"
     assert audits[0]["after"]["to"] == "me@example.com"
     assert SMTP["password"] not in str(audits)
-    done = await row(db_session, "SELECT verified_at FROM org_email_settings WHERE org_id = :o", o=tenant.org.id)
+    done = await row(
+        db_session, "SELECT verified_at FROM org_email_settings WHERE org_id = :o", o=tenant.org.id
+    )
     assert done["verified_at"] is not None
 
 
@@ -169,7 +183,9 @@ async def test_ai_provider_catalog(http, tenant):
     assert r.status_code == 200
     data = {p["id"]: p for p in r.json()["providers"]}
     assert list(data) == ["claude", "gemini", "openai", "openai-compatible", "cli"]
-    assert data["claude"]["default_model"] == "claude-haiku-5-5" and data["claude"]["requires_api_key"] is True
+    assert (
+        data["claude"]["default_model"] == "claude-haiku-5-5" and data["claude"]["requires_api_key"] is True
+    )
     assert data["openai-compatible"]["requires_base_url"] is True
     assert data["cli"]["cli_commands"] == list(settings.ai_cli_allowlist)
     assert r.json()["cli_notice_key"] == "settings.ai.cli_runs_on_backend_host"
@@ -182,7 +198,13 @@ async def test_ai_get_when_not_configured(http, tenant):
 
 async def test_ai_key_encrypted_and_masked(http, tenant, db_session):
     key = "sk-ant-api03-SUPERSECRETKEYVALUE1234"
-    body = {"provider": "claude", "model": "claude-haiku-5-5", "mode": "api", "api_key": key, "monthly_call_cap": 500}
+    body = {
+        "provider": "claude",
+        "model": "claude-haiku-5-5",
+        "mode": "api",
+        "api_key": key,
+        "monthly_call_cap": 500,
+    }
     put = await http.put(f"{API}/settings/ai", headers=tenant.headers, json=body)
     assert put.status_code == 200, put.text
     for response in (put.json(), (await http.get(f"{API}/settings/ai", headers=tenant.headers)).json()):
@@ -195,7 +217,9 @@ async def test_ai_key_encrypted_and_masked(http, tenant, db_session):
     assert key not in stored["api_key_enc"] and security.decrypt_field(stored["api_key_enc"]) == key
 
     # omit the key: kept
-    again = await http.put(f"{API}/settings/ai", headers=tenant.headers, json={k: v for k, v in body.items() if k != "api_key"})
+    again = await http.put(
+        f"{API}/settings/ai", headers=tenant.headers, json={k: v for k, v in body.items() if k != "api_key"}
+    )
     assert again.json()["api_key_set"] is True
     audits = await audit_rows(db_session, tenant.org.id, "AI_SETTINGS_UPDATED")
     assert len(audits) == 2 and key not in str(audits)
@@ -206,11 +230,18 @@ async def test_ai_key_dropped_when_provider_or_base_url_changes(http, tenant, db
     await http.put(
         f"{API}/settings/ai",
         headers=tenant.headers,
-        json={"provider": "claude", "model": "claude-haiku-5-5", "mode": "api", "api_key": "sk-first-key-9999"},
+        json={
+            "provider": "claude",
+            "model": "claude-haiku-5-5",
+            "mode": "api",
+            "api_key": "sk-first-key-9999",
+        },
     )
     # switching provider without a new key must not send the old key to a different vendor
     r = await http.put(
-        f"{API}/settings/ai", headers=tenant.headers, json={"provider": "openai", "model": "gpt-5-mini", "mode": "api"}
+        f"{API}/settings/ai",
+        headers=tenant.headers,
+        json={"provider": "openai", "model": "gpt-5-mini", "mode": "api"},
     )
     assert r.status_code == 422
     assert r.json()["error"]["details"]["fields"][0] == {"field": "api_key", "code": "required"}
@@ -218,10 +249,17 @@ async def test_ai_key_dropped_when_provider_or_base_url_changes(http, tenant, db
     ok = await http.put(
         f"{API}/settings/ai",
         headers=tenant.headers,
-        json={"provider": "openai-compatible", "model": "llama", "mode": "api", "base_url": "http://llm.internal:8000/v1"},
+        json={
+            "provider": "openai-compatible",
+            "model": "llama",
+            "mode": "api",
+            "base_url": "http://llm.internal:8000/v1",
+        },
     )
     assert ok.status_code == 200 and ok.json()["api_key_set"] is False
-    stored = await row(db_session, "SELECT api_key_enc FROM org_ai_settings WHERE org_id = :o", o=tenant.org.id)
+    stored = await row(
+        db_session, "SELECT api_key_enc FROM org_ai_settings WHERE org_id = :o", o=tenant.org.id
+    )
     assert stored["api_key_enc"] is None
 
 
@@ -253,7 +291,9 @@ async def test_cli_mode_rejects_command_not_in_allowlist(http, tenant, db_sessio
         json={"provider": "cli", "mode": "cli", "cli_command_key": "rm -rf /"},
     )
     assert bad.status_code == 422
-    assert bad.json()["error"]["details"]["fields"] == [{"field": "cli_command_key", "code": "not_in_allowlist"}]
+    assert bad.json()["error"]["details"]["fields"] == [
+        {"field": "cli_command_key", "code": "not_in_allowlist"}
+    ]
     other = await http.put(
         f"{API}/settings/ai",
         headers=tenant.headers,
@@ -261,7 +301,9 @@ async def test_cli_mode_rejects_command_not_in_allowlist(http, tenant, db_sessio
     )
     assert other.status_code == 422
 
-    missing = await http.put(f"{API}/settings/ai", headers=tenant.headers, json={"provider": "cli", "mode": "cli"})
+    missing = await http.put(
+        f"{API}/settings/ai", headers=tenant.headers, json={"provider": "cli", "mode": "cli"}
+    )
     assert missing.status_code == 422
 
     good = await http.put(
@@ -272,18 +314,24 @@ async def test_cli_mode_rejects_command_not_in_allowlist(http, tenant, db_sessio
     assert good.status_code == 200, good.text
     assert good.json()["cli_command_key"] == "claude" and good.json()["mode"] == "cli"
     stored = await row(db_session, "SELECT * FROM org_ai_settings WHERE org_id = :o", o=tenant.org.id)
-    assert stored["cli_command_key"] == "claude" and stored["api_key_enc"] is None and stored["base_url"] is None
+    assert (
+        stored["cli_command_key"] == "claude" and stored["api_key_enc"] is None and stored["base_url"] is None
+    )
 
 
 async def test_cli_allowlist_follows_settings(http, tenant, monkeypatch):
     monkeypatch.setattr(settings, "ai_cli_allowlist", ["claude", "codex"])
     r = await http.put(
-        f"{API}/settings/ai", headers=tenant.headers, json={"provider": "cli", "mode": "cli", "cli_command_key": "codex"}
+        f"{API}/settings/ai",
+        headers=tenant.headers,
+        json={"provider": "cli", "mode": "cli", "cli_command_key": "codex"},
     )
     assert r.status_code == 200
     monkeypatch.setattr(settings, "ai_cli_allowlist", ["claude"])
     r = await http.put(
-        f"{API}/settings/ai", headers=tenant.headers, json={"provider": "cli", "mode": "cli", "cli_command_key": "codex"}
+        f"{API}/settings/ai",
+        headers=tenant.headers,
+        json={"provider": "cli", "mode": "cli", "cli_command_key": "codex"},
     )
     assert r.status_code == 422
 
@@ -299,16 +347,24 @@ async def test_ai_connection_test_uses_provider_and_records_verification(http, t
     )
     ok = await http.post(f"{API}/settings/ai/test", headers=tenant.headers)
     assert ok.status_code == 200 and ok.json()["ok"] is True and ok.json()["verified_at"]
-    saved = await row(db_session, "SELECT verified_at FROM org_ai_settings WHERE org_id = :o", o=tenant.org.id)
+    saved = await row(
+        db_session, "SELECT verified_at FROM org_ai_settings WHERE org_id = :o", o=tenant.org.id
+    )
     assert saved["verified_at"] is not None
 
     mock_ai.connected = False
     failed = await http.post(f"{API}/settings/ai/test", headers=tenant.headers)
-    assert failed.status_code == 200 and failed.json()["ok"] is False and failed.json()["reason"] == "connection_failed"
+    assert (
+        failed.status_code == 200
+        and failed.json()["ok"] is False
+        and failed.json()["reason"] == "connection_failed"
+    )
 
     # changing the model invalidates the verification
     changed = await http.put(
-        f"{API}/settings/ai", headers=tenant.headers, json={"provider": "gemini", "model": "gemini-pro", "mode": "api"}
+        f"{API}/settings/ai",
+        headers=tenant.headers,
+        json={"provider": "gemini", "model": "gemini-pro", "mode": "api"},
     )
     assert changed.json()["verified_at"] is None
 
@@ -339,9 +395,11 @@ async def test_get_provider_config_for_m14(db_session, http, tenant):
         headers=tenant.headers,
         json={"provider": "claude", "model": "claude-haiku-5-5", "mode": "api", "api_key": "sk-ant-zzzz"},
     )
-    await db_session.rollback()
+    await db_session.commit()
     config = await AiSettingsService(db_session).get_provider_config(tenant.org.id)
-    assert config.provider == "claude" and config.api_key == "sk-ant-zzzz" and config.model == "claude-haiku-5-5"
+    assert (
+        config.provider == "claude" and config.api_key == "sk-ant-zzzz" and config.model == "claude-haiku-5-5"
+    )
     assert "sk-ant-zzzz" not in repr(config)
 
 
@@ -351,7 +409,13 @@ async def test_ai_usage_meter(http, tenant, other_tenant, db_session):
     await http.put(
         f"{API}/settings/ai",
         headers=tenant.headers,
-        json={"provider": "claude", "model": "claude-haiku-5-5", "mode": "api", "api_key": "k-1", "monthly_call_cap": 10},
+        json={
+            "provider": "claude",
+            "model": "claude-haiku-5-5",
+            "mode": "api",
+            "api_key": "k-1",
+            "monthly_call_cap": 10,
+        },
     )
     rows = [
         (tenant.org.id, "question_gen", 100, 50, "now()"),

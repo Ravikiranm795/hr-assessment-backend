@@ -7,14 +7,16 @@ from datetime import datetime
 from typing import Annotated, Any, Literal
 from zoneinfo import available_timezones
 
-from pydantic import BaseModel, ConfigDict, EmailStr, Field, StrictBool, StrictInt, field_validator
+from pydantic import BaseModel, ConfigDict, EmailStr, Field, StrictBool, field_validator
 
 from app.core.branding_text import BACKGROUND_STYLES, FONT_KEYS
 from app.core.config import settings
 from app.modules.m04_org_settings.contrast import normalize_hex
 
 _DOMAIN = re.compile(r"^(?=.{1,253}$)([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}$")
-_HOSTNAME = re.compile(r"^(?=.{1,253}$)[A-Za-z0-9]([A-Za-z0-9-]{0,61}[A-Za-z0-9])?(\.[A-Za-z0-9]([A-Za-z0-9-]{0,61}[A-Za-z0-9])?)*$")
+_HOSTNAME = re.compile(
+    r"^(?=.{1,253}$)[A-Za-z0-9]([A-Za-z0-9-]{0,61}[A-Za-z0-9])?(\.[A-Za-z0-9]([A-Za-z0-9-]{0,61}[A-Za-z0-9])?)*$"
+)
 _LOCALE = re.compile(r"^[a-z]{2}(-[A-Z]{2})?$")
 
 
@@ -32,7 +34,7 @@ def _no_crlf(value: str | None) -> str | None:
     return value
 
 
-# --------------------------------------------------------------------------- profile, security, retention, invites
+# -------------------- profile, security, retention, invites
 
 
 class ProfileIn(Strict):
@@ -58,7 +60,9 @@ class ProfileIn(Strict):
 class ProfileOut(Out):
     model_config = ConfigDict(
         from_attributes=True,
-        json_schema_extra={"examples": [{"name": "Acme Hiring", "slug": "acme", "locale": "en", "timezone": "UTC"}]},
+        json_schema_extra={
+            "examples": [{"name": "Acme Hiring", "slug": "acme", "locale": "en", "timezone": "UTC"}]
+        },
     )
     name: str
     slug: str
@@ -150,7 +154,7 @@ def check_host(host: str, *, strict: bool) -> str:
         if not _HOSTNAME.match(host):
             raise ValueError("invalid host") from None
         if strict and host.lower() in {"localhost", "localhost.localdomain"}:
-            raise ValueError("internal host not allowed")
+            raise ValueError("internal host not allowed") from None
         return host
     if ip.is_link_local or ip.is_unspecified or ip.is_multicast:
         raise ValueError("address not allowed")
@@ -220,10 +224,16 @@ class EmailTestIn(Strict):
 
 
 class EmailTestOut(BaseModel):
-    model_config = ConfigDict(json_schema_extra={"examples": [{"sent": True, "verified_at": "2026-11-16T10:00:00Z", "reason": None}]})
+    model_config = ConfigDict(
+        json_schema_extra={
+            "examples": [{"sent": True, "verified_at": "2026-11-16T10:00:00Z", "reason": None}]
+        }
+    )
     sent: bool
     verified_at: datetime | None = None
-    reason: str | None = Field(None, description="Machine code when `sent` is false, for example `smtp_send_failed`.")
+    reason: str | None = Field(
+        None, description="Machine code when `sent` is false, for example `smtp_send_failed`."
+    )
 
 
 # --------------------------------------------------------------------------- AI
@@ -333,7 +343,9 @@ class BrandingIn(Strict):
     accent_color: str | None = None
     background_style: Literal[*BACKGROUND_STYLES] | None = None  # type: ignore[valid-type]
     font_key: Literal[*FONT_KEYS] | None = None  # type: ignore[valid-type]
-    logo_asset_id: uuid.UUID | None = Field(None, description="Only `null` (remove the logo) or an asset of this organization.")
+    logo_asset_id: uuid.UUID | None = Field(
+        None, description="Only `null` (remove the logo) or an asset of this organization."
+    )
     favicon_asset_id: uuid.UUID | None = None
 
     @field_validator("primary_color", "accent_color")

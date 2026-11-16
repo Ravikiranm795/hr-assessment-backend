@@ -65,7 +65,9 @@ async def get_theme(session: AsyncSession, org_id: UUID, *, for_update: bool = F
     return (await session.execute(stmt)).scalar_one_or_none()
 
 
-async def get_asset(session: AsyncSession, org_id: UUID, asset_id: UUID, kind: str | None = None) -> Asset | None:
+async def get_asset(
+    session: AsyncSession, org_id: UUID, asset_id: UUID, kind: str | None = None
+) -> Asset | None:
     stmt = select(Asset).where(Asset.id == asset_id, Asset.org_id == org_id)
     if kind:
         stmt = stmt.where(Asset.kind == kind)
@@ -113,7 +115,9 @@ async def version_stats(session: AsyncSession, doc_ids: list[UUID]) -> dict[UUID
     stats: dict[UUID, dict[str, Any]] = {d: {"count": 0, "current": None} for d in doc_ids}
     rows = (
         await session.execute(
-            select(DocumentVersion.document_id, func.count()).where(DocumentVersion.document_id.in_(doc_ids)).group_by(DocumentVersion.document_id)
+            select(DocumentVersion.document_id, func.count())
+            .where(DocumentVersion.document_id.in_(doc_ids))
+            .group_by(DocumentVersion.document_id)
         )
     ).all()
     for doc_id, count in rows:
@@ -135,19 +139,31 @@ async def version_stats(session: AsyncSession, doc_ids: list[UUID]) -> dict[UUID
 
 
 async def list_versions(session: AsyncSession, doc_id: UUID) -> list[DocumentVersion]:
-    stmt = select(DocumentVersion).where(DocumentVersion.document_id == doc_id).order_by(DocumentVersion.version_no.desc())
+    stmt = (
+        select(DocumentVersion)
+        .where(DocumentVersion.document_id == doc_id)
+        .order_by(DocumentVersion.version_no.desc())
+    )
     return list((await session.execute(stmt)).scalars().all())
 
 
-async def get_version(session: AsyncSession, doc_id: UUID, version_id: UUID, *, for_update: bool = False) -> DocumentVersion | None:
-    stmt = select(DocumentVersion).where(DocumentVersion.id == version_id, DocumentVersion.document_id == doc_id)
+async def get_version(
+    session: AsyncSession, doc_id: UUID, version_id: UUID, *, for_update: bool = False
+) -> DocumentVersion | None:
+    stmt = select(DocumentVersion).where(
+        DocumentVersion.id == version_id, DocumentVersion.document_id == doc_id
+    )
     if for_update:
         stmt = stmt.with_for_update()
     return (await session.execute(stmt)).scalar_one_or_none()
 
 
 async def next_version_no(session: AsyncSession, doc_id: UUID) -> int:
-    top = (await session.execute(select(func.max(DocumentVersion.version_no)).where(DocumentVersion.document_id == doc_id))).scalar_one()
+    top = (
+        await session.execute(
+            select(func.max(DocumentVersion.version_no)).where(DocumentVersion.document_id == doc_id)
+        )
+    ).scalar_one()
     return (top or 0) + 1
 
 
@@ -155,7 +171,9 @@ async def latest_published(session: AsyncSession, org_id: UUID, doc_type: str) -
     stmt = (
         select(DocumentVersion)
         .join(Document, Document.id == DocumentVersion.document_id)
-        .where(Document.org_id == org_id, Document.doc_type == doc_type, DocumentVersion.status == "published")
+        .where(
+            Document.org_id == org_id, Document.doc_type == doc_type, DocumentVersion.status == "published"
+        )
         .order_by(DocumentVersion.published_at.desc(), DocumentVersion.version_no.desc())
         .limit(1)
     )
@@ -163,5 +181,9 @@ async def latest_published(session: AsyncSession, org_id: UUID, doc_type: str) -
 
 
 async def has_published(session: AsyncSession, doc_id: UUID) -> bool:
-    stmt = select(func.count()).select_from(DocumentVersion).where(DocumentVersion.document_id == doc_id, DocumentVersion.status == "published")
+    stmt = (
+        select(func.count())
+        .select_from(DocumentVersion)
+        .where(DocumentVersion.document_id == doc_id, DocumentVersion.status == "published")
+    )
     return (await session.execute(stmt)).scalar_one() > 0
