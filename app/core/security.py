@@ -203,7 +203,7 @@ def _base_claims(audience: str, ttl_sec: int) -> dict[str, Any]:
         "jti": uuid.uuid4().hex,
         "iat": now,
         "exp": now + ttl_sec,
-        "iss": settings.app_slug,
+        "iss": settings.jwt_issuer,
         "aud": audience,
     }
 
@@ -249,7 +249,7 @@ def decode_token(token: str, audience: str = API_AUDIENCE) -> Claims:
             public_key,
             algorithms=[algorithm],
             audience=audience,
-            issuer=settings.app_slug,
+            issuer=settings.jwt_issuer,
             options={"require": ["exp", "iat", "jti", "sub", "aud", "iss"]},
         )
         return Claims(

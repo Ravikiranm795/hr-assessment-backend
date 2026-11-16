@@ -118,7 +118,7 @@ def test_access_token_roundtrip_has_required_claims():
     assert claims.role == "hr_user"
     assert claims.sid == str(sid)
     assert claims.tv == 3
-    assert claims.iss == settings.app_slug
+    assert claims.iss == settings.jwt_issuer
     assert claims.exp - claims.iat == settings.access_ttl_min * 60
     assert claims.jti
 

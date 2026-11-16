@@ -12,6 +12,16 @@ DEFAULT_VENDOR_NAME = "MRK Innovations"
 CommaList = Annotated[list[str], NoDecode]
 
 
+def _slug(name: str) -> str:
+    return re.sub(r"[^a-z0-9]+", "-", name.lower()).strip("-")
+
+
+# Stable identifiers: they default to the values the original default name produced, so renaming
+# APP_NAME never invalidates issued tokens or refresh cookies (override only to match older deployments).
+DEFAULT_JWT_ISSUER = _slug(DEFAULT_APP_NAME)
+DEFAULT_REFRESH_COOKIE_NAME = f"{DEFAULT_JWT_ISSUER}_refresh"
+
+
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(
         extra="ignore",
@@ -39,6 +49,9 @@ class Settings(BaseSettings):
     jwt_private_key: str = ""
     jwt_public_key: str = ""
     jwt_kid: str = "k1"
+    # Token issuer claim. Independent of APP_NAME on purpose (a rename must not log everyone out).
+    jwt_issuer: str = DEFAULT_JWT_ISSUER
+    refresh_cookie_name: str = DEFAULT_REFRESH_COOKIE_NAME
     access_ttl_min: int = 15
     refresh_ttl_days: int = 7
 
@@ -100,8 +113,8 @@ class Settings(BaseSettings):
     @computed_field  # type: ignore[prop-decorator]
     @property
     def app_slug(self) -> str:
-        """Lowercase, hyphenated form of the name; used as the JWT issuer."""
-        return re.sub(r"[^a-z0-9]+", "-", self.app_name.lower()).strip("-")
+        """Lowercase, hyphenated form of the name (display only; the JWT issuer is ``jwt_issuer``)."""
+        return _slug(self.app_name)
 
     @model_validator(mode="after")
     def _require_secrets_in_prod(self) -> "Settings":

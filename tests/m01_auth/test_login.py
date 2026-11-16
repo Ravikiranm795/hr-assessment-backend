@@ -29,7 +29,7 @@ async def test_login_success_sets_refresh_cookie(client: AsyncClient, world: Wor
     cookie = next(h for h in response.headers.get_list("set-cookie") if h.startswith(REFRESH_COOKIE))
     lowered = cookie.lower()
     assert "httponly" in lowered and "samesite=strict" in lowered and "path=/api/v1/auth" in lowered
-    assert REFRESH_COOKIE == f"{settings.app_slug}_refresh"
+    assert REFRESH_COOKIE == settings.refresh_cookie_name
 
     me = await client.get(f"{BASE}/me", headers=bearer(response))
     assert me.status_code == 200 and me.json()["user"]["id"] == str(world.hr.id)

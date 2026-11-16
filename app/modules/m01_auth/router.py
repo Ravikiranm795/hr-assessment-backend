@@ -36,7 +36,7 @@ from app.modules.m01_auth.service import AuthResult, service
 
 router = APIRouter(prefix="/api/v1/auth", tags=["auth"])
 
-REFRESH_COOKIE = f"{settings.app_slug}_refresh"
+REFRESH_COOKIE = settings.refresh_cookie_name
 COOKIE_PATH = "/api/v1/auth"
 _PUBLIC = {"x-roles": [], "x-required-flag": None}
 

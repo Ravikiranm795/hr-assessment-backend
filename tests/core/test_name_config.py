@@ -13,6 +13,12 @@ def test_app_slug_is_derived_from_name() -> None:
     assert Settings(app_name="Foo Bar & Baz!").app_slug == "foo-bar-baz"
 
 
+def test_rename_keeps_jwt_issuer_and_refresh_cookie_name() -> None:
+    renamed = Settings(app_name="Foo")
+    assert renamed.jwt_issuer == Settings().jwt_issuer != renamed.app_slug
+    assert renamed.refresh_cookie_name == Settings().refresh_cookie_name
+
+
 def test_watermark_text_uses_vendor(monkeypatch) -> None:
     monkeypatch.setattr(settings, "vendor_name", "Acme Widgets")
     assert branding_text.watermark() == "Powered by Acme Widgets"
