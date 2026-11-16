@@ -29,6 +29,10 @@ class Settings(BaseSettings):
 
     database_url: str = "postgresql+asyncpg://postgres:postgres@localhost:5432/hr_assessment"
     database_url_reports_ro: str = ""
+    # Runtime DB roles. tenant_session()/reports_session() run SET LOCAL ROLE so RLS applies even when
+    # the connection user is a superuser (dev/compose). Empty string disables (connect as the role directly).
+    db_app_role: str = "app_rw"
+    db_reports_role: str = "reports_ro"
 
     jwt_private_key: str = ""
     jwt_public_key: str = ""

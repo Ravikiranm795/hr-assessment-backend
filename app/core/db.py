@@ -5,6 +5,7 @@ RLS variables (``app.org_id``, ``app.is_platform``) with ``set_config(..., is_lo
 which is the parameterized equivalent of ``SET LOCAL``. Commit on success, rollback on error.
 """
 
+import re
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from dataclasses import dataclass, replace
@@ -65,6 +66,18 @@ def get_sessionmaker() -> async_sessionmaker[AsyncSession]:
     return async_sessionmaker(get_engine(), expire_on_commit=False)
 
 
+_ROLE_RE = re.compile(r"[a-z_][a-z0-9_]{0,62}")
+
+
+async def _set_local_role(session: AsyncSession, role: str) -> None:
+    """``SET LOCAL ROLE`` so RLS and column grants apply (superusers and BYPASSRLS skip RLS otherwise)."""
+    if not role:
+        return
+    if not _ROLE_RE.fullmatch(role):
+        raise ValueError(f"invalid database role name: {role!r}")
+    await session.execute(text(f'SET LOCAL ROLE "{role}"'))
+
+
 async def apply_tenant_settings(session: AsyncSession, ctx: TenantContext) -> None:
     """Set the RLS variables for the current transaction only."""
     await session.execute(
@@ -78,6 +91,7 @@ async def tenant_session(ctx: TenantContext) -> AsyncIterator[AsyncSession]:
     """One transaction with RLS variables set. Commits on normal exit, rolls back on error."""
     async with get_sessionmaker()() as session:
         async with session.begin():
+            await _set_local_role(session, settings.db_app_role)
             await apply_tenant_settings(session, ctx)
             yield session
 
@@ -91,6 +105,7 @@ async def reports_session(
     async with async_sessionmaker(_engine(url), expire_on_commit=False)() as session:
         try:
             await session.execute(text("SET TRANSACTION READ ONLY"))
+            await _set_local_role(session, settings.db_reports_role)
             await session.execute(
                 text("SELECT set_config('statement_timeout', :ms, true)"), {"ms": str(statement_timeout_ms)}
             )
