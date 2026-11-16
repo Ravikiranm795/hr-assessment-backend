@@ -220,6 +220,7 @@ Defined in `app/core/config.py` (the only place that reads the environment, apar
 | `API_BASE_URL` | `http://localhost:8000` | Public API base; used to build signed file URLs (`/api/v1/files/<token>`) |
 | `APP_BASE_URL` | `http://localhost:3000` | **Frontend** URL written into every invite link (`{APP_BASE_URL}/exam/<token>`). Moving from a tunnel to a domain is this one line |
 | `DATABASE_URL` | local postgres | Main connection (`postgresql+asyncpg://...`). In compose it is overridden to the `db` service |
+| `DATABASE_URL_MIGRATIONS` | empty (falls back to `DATABASE_URL`) | Login used only by `alembic upgrade head` (entrypoint and `migrations/env.py`); must be allowed to create roles and extensions. Lets `DATABASE_URL` be a least-privilege login |
 | `DATABASE_URL_REPORTS_RO` | empty (falls back to `DATABASE_URL`) | Connection for the report engine; the transaction runs as role `reports_ro` |
 | `DATABASE_URL_MAINTENANCE` | empty (falls back to `DATABASE_URL`) | Connection for the `audit_partitions` job; the partition functions are executable only by role `maintenance` |
 | `DB_APP_ROLE`, `DB_REPORTS_ROLE` | `app_rw`, `reports_ro` | Role switched to with `SET LOCAL ROLE` per transaction. Empty disables the switch (connect directly as that role) |
@@ -240,15 +241,17 @@ Defined in `app/core/config.py` (the only place that reads the environment, apar
 | `GOOGLE_CLIENT_ID` | empty | Audience for Google ID-token verification; empty means Google sign-in is off |
 | `CORS_ORIGINS` | `http://localhost:3000` | Comma-separated allow-list (credentials are allowed, so never `*`) |
 | `COOKIE_DOMAIN` | empty | Domain attribute of the refresh cookie |
-| `COOKIE_SECURE` | `false` | `Secure` flag of the refresh cookie. **Set `true` behind HTTPS** |
+| `COOKIE_SECURE` | unset: `true` in prod, `false` otherwise | `Secure` flag of the refresh **and** exam-binding cookies |
+| `ENABLE_DOCS` | unset: on in dev/test, **off in prod** | Swagger UI (`/docs`), ReDoc and `/openapi.json`; the spec calls Swagger a deliverable, so it is exported to `docs/openapi.json` instead (`export-openapi`) |
+| `FORWARDED_ALLOW_IPS` | `127.0.0.1` | Peers trusted to set `X-Forwarded-For`; the entrypoint passes it to uvicorn (`--proxy-headers` is on in the image CMD). Set it to the reverse proxy's address so per-IP rate limits see real clients |
 | `AI_CLI_ALLOWLIST`, `AI_CLI_TIMEOUT_SEC` | `claude`, 120 | CLI provider: allowed command keys and hard timeout |
 | `AI_REQUEST_TIMEOUT_SEC` | 60 | Timeout for API-mode provider calls (generation, scoring, report chat, connection tests) |
 | `MAX_UPLOAD_MB`, `MAX_JD_CHARS` | 5, 8000 | Upload size limit (logos, documents, baseline photo, snapshots); job description length for AI generation |
-| `MAX_SNAPSHOT_KB` | 300 | **Defined but not read by any code** at the time of writing (snapshots are limited by `MAX_UPLOAD_MB`); see Appendix B |
+| `MAX_SNAPSHOT_KB` | 300 | Largest accepted exam proctoring snapshot; a bigger upload is `UPLOAD_INVALID` (`too_large`). `MAX_UPLOAD_MB` still caps other uploads |
 | `RATE_LIMIT_LOGIN`, `_EXAM_LINK`, `_EXAM_EVENTS`, `_AI_GENERATE`, `_REPORT_INTERPRET`, `_INVITE_EMAIL` | 10/min, 20/min, 120/min, 5/min, 10/min, 60/hour | slowapi strings. Login and exam-link are per IP, events per attempt, generate and interpret per user, invite email per organization |
 | `RATE_LIMIT_SNAPSHOT_INTERVAL_SEC`, `RATE_LIMIT_SNAPSHOT_MAX_PER_ATTEMPT` | 20, 300 | One snapshot per 20 s per attempt, 300 per attempt |
 | `LOG_LEVEL` | `INFO` | Python logging level |
-| `DEMO_MODE` | `false` | **Defined but not read by any code** at the time of writing; see Appendix B |
+| `LOG_FORMAT` | `json` | `json` (one structured object per line) or `text` for local reading |
 | `DEMO_PASSWORD` | `DemoPass#2026` | Seed only: shared password of the demo accounts (must satisfy the policy) |
 | `INSTALL_CLAUDE_CLI` | `false` | Compose **build** argument: install the Claude CLI into the image for the CLI AI provider |
 | `API_PORT`, `DB_WAIT_TIMEOUT_SEC`, `TEST_DATABASE_URL` | 8000, 60, test-db | Compose port mapping, entrypoint wait, test database |
@@ -259,7 +262,7 @@ Two revisions in `migrations/versions/`: `0001_baseline` (tables, extensions `ci
 
 - `alembic upgrade head` on an empty database builds everything. It is also what the entrypoint runs on every API start. `alembic downgrade base` works and is tested; the three roles are cluster-wide and are left in place.
 - Grants are explicit, not default privileges: **any new table needs its own grant lines** in a later migration (`app_rw`, and `reports_ro` where reports may read it).
-- Migrations run with `DATABASE_URL` (`migrations/env.py` has no separate migration URL), so the connecting user must be allowed to create roles and extensions (superuser, or an owner with `CREATEROLE`). See the least-privilege caveat in 10.1.
+- Migrations run with `DATABASE_URL_MIGRATIONS` (falls back to `DATABASE_URL`; the entrypoint wait and `migrations/env.py` both use it), so the connecting user must be allowed to create roles and extensions (superuser, or an owner with `CREATEROLE`). See the least-privilege caveat in 10.1.
 - Moving to the client's cloud: run migrations on an empty database (the schema builds itself), then start clean or reseed.
 
 ### 2.5 First-run behavior
@@ -797,6 +800,7 @@ The worker (`python -m app.jobs.scheduler`, compose service `worker`, same image
 | `audit_partitions` | 1st of month 01:00 UTC (and once at worker start) | Create the next audit partitions, drop those entirely older than 13 months, log the purge. |
 | `notification_cleanup` | daily 03:30 UTC | Remove read notifications older than 60 days (unread ones are kept). |
 | `report_cleanup` | daily 04:00 UTC | Remove generated report files older than 7 days (the request row stays as history). |
+| `auth_cleanup` | daily 04:30 UTC | Delete refresh tokens one day after they expire (a revoked token stays until then so reuse is still detected) and trim `password_history` to the organization's `history` depth (default 5). |
 
 
 Notes:
@@ -842,7 +846,7 @@ The catalog is `app/modules/m14_ai/ai_models.json` (verified 2026-11-16). It is 
 
 ```sh
 uvicorn app.main:create_app --factory --host 0.0.0.0 --port 8000 --proxy-headers --forwarded-allow-ips="<proxy ip or CIDR>"
-# or keep the image CMD and set FORWARDED_ALLOW_IPS=<proxy ip> in the environment
+# or keep the image CMD (it has --proxy-headers) and set FORWARDED_ALLOW_IPS=<proxy ip> in the environment; the entrypoint passes it to uvicorn (default 127.0.0.1)
 ```
 
 Only trust addresses you control: with `*` any client can spoof `X-Forwarded-For` and evade the rate limits. The shipped `CMD` has no proxy flags.
@@ -852,7 +856,7 @@ Only trust addresses you control: with `*` any client can spoof `X-Forwarded-For
 **Database roles and RLS in production.** RLS only protects when the transaction runs as `app_rw`. Two supported topologies:
 
 1. *Owner connection plus `SET LOCAL ROLE`* (what compose and the tests use): `DATABASE_URL` connects as a role that may `SET ROLE app_rw` (a superuser in compose). Simple, and the same user runs migrations. Residual risk: an SQL injection could `RESET ROLE`; there is no raw SQL from user input, which is the primary defense.
-2. *Least privilege*: set `APP_RW_DB_PASSWORD`, `REPORTS_RO_DB_PASSWORD`, `MAINTENANCE_DB_PASSWORD` when the migration runs, then point `DATABASE_URL`, `DATABASE_URL_REPORTS_RO`, `DATABASE_URL_MAINTENANCE` at those logins and set `DB_APP_ROLE=` and `DB_REPORTS_ROLE=` empty. **Not exercised in this build, and the entrypoint runs `alembic upgrade head` with `DATABASE_URL`**, which these logins cannot do; run migrations as a separate one-off step with the owner URL and start the API with a command that skips the entrypoint migration. Test this before relying on it.
+2. *Least privilege*: set `APP_RW_DB_PASSWORD`, `REPORTS_RO_DB_PASSWORD`, `MAINTENANCE_DB_PASSWORD` when the migration runs, then point `DATABASE_URL`, `DATABASE_URL_REPORTS_RO`, `DATABASE_URL_MAINTENANCE` at those logins and set `DB_APP_ROLE=` and `DB_REPORTS_ROLE=` empty. Set `DATABASE_URL_MIGRATIONS` to the owner login so the entrypoint migrates with it while the app runs on the least-privilege `DATABASE_URL` (the URL fallback was verified; the full topology with real role passwords is **not exercised in this build**, so test it before relying on it).
 
 **`log_statement` caveat.** The baseline migration sets a role password with `ALTER ROLE ... PASSWORD '<literal>'`. PostgreSQL utility statements cannot take bind parameters, so the literal is built from the environment value after a strict charset check (see the variable table) and the migration runs `set_config('log_statement','none', true)` first. If the server has `log_statement = 'all'` or `'ddl'`, that is best effort: a non-privileged migration role cannot change the setting (the call is skipped silently), and the password can then appear in the server log or `pg_stat_statements`. Run the migration as a superuser, keep `log_statement` at `none` or `mod` for that session, rotate the three role passwords afterwards if in doubt, and never put the migration passwords in shell history.
 
@@ -891,7 +895,7 @@ A restored database keeps its audit partitions; the worker's start-up `audit_par
 | `DEFAULT_SA_PASSWORD` | Superuser step in 3.2 | Not applied automatically |
 | Organization SMTP password and AI keys | Re-enter through the settings API | Write-only |
 
-**Logs.** Plain-text Python logging at `LOG_LEVEL` (the spec's structured JSON logs and metrics counters are not implemented, see Appendix B). Log lines carry the request id; secrets and candidate answers are not logged. The audit log is the authoritative record of who did what.
+**Logs and metrics.** Structured JSON logs at `LOG_LEVEL` (`LOG_FORMAT=text` for local reading): every request logs `request_id`, `org_id`, `user_id`, `route` (the route template, never the raw path or query string), `status` and `latency_ms` (logger `app.access`; health probes log at DEBUG), and other lines carry the request context; job runs log an `event=job_run` line. `GET /metrics` (super admin bearer only, Prometheus text) exposes counters for HTTP requests, AI calls, exam starts, audit events and, in the worker process only, job runs (the worker has no HTTP port, so read job runs from the logs). Counters are per process and reset on restart. Secrets and candidate answers are not logged. The audit log is the authoritative record of who did what.
 
 ### 10.2 Security controls in place (spec section 10)
 
@@ -918,7 +922,7 @@ Argon2id (about 250 ms), lockout, per-endpoint rate limits, refresh rotation wit
 | R13 | Default SA password rotation needs a superuser step | See 3.2 |
 | R14 | Dependencies are pinned directly but there is no lock file | Transitive packages float; run a dependency audit periodically and consider a `pip-compile` lock |
 | R15 | Link regeneration keeps the browser binding | A regenerated link opened from a new browser still needs `reset-binding` (the spec text, but HR may expect otherwise) |
-| R16 | Swagger UI and `/openapi.json` are served in every environment | Restrict them at the proxy in production if the API surface should not be public |
+| R16 | Swagger UI and `/openapi.json` | Off when `APP_ENV=prod` unless `ENABLE_DOCS=true` (fixed) |
 
 ### 10.4 Product decisions worth knowing
 
@@ -1035,20 +1039,20 @@ What follows the names:
 
 Everything that was parked, decided or flagged while building, so nothing lives only in the ledger.
 
-**Parked or accepted:** access tokens live up to 15 minutes after logout (R1); single JWT kid (R2); uvicorn needs `--proxy-headers` and trusted addresses (10.1); SMTP DNS re-resolve only at save/test (R3); export caps and the 30-day default window (R7); no TOTP replay protection and `totp_required_for_admins` not enforced (R4); the default SA password change needs a superuser step (3.2); org-disabled checked at exam open only (R6); AI `base_url` not DNS-restricted in production (R5, owner decision pending); `INTERNAL_ERROR` outside the registry (10.4); `app/core` edits after the freeze were limited to metadata and headers: OpenAPI metadata and security schemes (`openapi_meta.py`, health and files descriptions), the security-headers middleware, the request-id regex fix, and the tenant-session `SET LOCAL ROLE` fix.
+**Parked or accepted:** access tokens live up to 15 minutes after logout (R1); single JWT kid (R2); `FORWARDED_ALLOW_IPS` must name the reverse proxy (10.1); SMTP DNS re-resolve only at save/test (R3); export caps and the 30-day default window (R7); no TOTP replay protection and `totp_required_for_admins` not enforced (R4); the default SA password change needs a superuser step (3.2); org-disabled checked at exam open only (R6); AI `base_url` not DNS-restricted in production (R5, owner decision pending); `INTERNAL_ERROR` outside the registry (10.4); `app/core` edits after the freeze were limited to metadata and headers: OpenAPI metadata and security schemes (`openapi_meta.py`, health and files descriptions), the security-headers middleware, the request-id regex fix, and the tenant-session `SET LOCAL ROLE` fix.
 
 **Interfaces other developers will meet:** `hooks.on_role_close` handlers take `(ctx, session, role_id)` so the invite revocation runs in the same transaction; `RoleService.get_open_linked_role(session, org_id, role_id) -> (OpenRole, version_id)`; `ExamService.finalize(ctx, session, attempt_id, reason)` is idempotent and row-locked (the sweeper calls it with `timer`); `attempts.flag_counts = {"types": {...}, "severity": {...}}`; `ScoringService.score_attempt` / `recompute`; `ReviewService.erase_candidate_data`; `EmailSettingsService.smtp_for_sending`; `DocumentService.published_view`; `app.jobs.JOBS`; `export-openapi` lives in `seed/cli.py`. Gadget data routes use flag `dashboard_gadgets`, notifications use `dashboard`.
 
 **Security-review fixes already applied:** Dockerfile does not chown app code to the runtime user; request-id `fullmatch` and ASCII check; SMTP host DNS guard in production; password omitted on settings update means keep (no plaintext comparison); migration hardening (column-level grants for `reports_ro`, RLS on `password_history` and `refresh_tokens`, role-password charset check and `log_statement = none`); attempt row lock on answer save, no snapshot re-attach, session binding checked against the invite's stored hash on every request (reset-binding cuts off the old session), revoked invites lose access; AI scoring redacts the candidate name; seed and wipe production guards; security headers (found by the live script).
 
-**Code observations for the owner (none changed in this documentation task):**
+**Code observations for the owner (items 1, 2, 3, 5 and 6 were fixed afterwards, see the status on each line):**
 
-1. `DEMO_MODE` and `MAX_SNAPSHOT_KB` are defined in `config.py` and `.env.example` but never read; snapshots are limited by `MAX_UPLOAD_MB` and the rate limits. Either wire them or remove them.
-2. Spec 4.12 asks for structured JSON logs and basic metrics counters (AI calls, exam starts, job runs). Only plain `logging.basicConfig` is present.
-3. The entrypoint migrates with `DATABASE_URL` and `migrations/env.py` has no separate migration URL, so the least-privilege topology in 10.1 needs a custom start command.
+1. **Fixed.** `MAX_SNAPSHOT_KB` now caps exam snapshots; `DEMO_MODE` was never read and is removed (demo data is flagged per organization with `is_demo`).
+2. **Fixed.** Structured JSON logs and basic metrics counters (HTTP, AI calls, exam starts, audit events, job runs) with a super-admin-only `GET /metrics`; see 10.1.
+3. **Fixed.** `DATABASE_URL_MIGRATIONS` (falls back to `DATABASE_URL`) is read by `migrations/env.py` and the entrypoint.
 4. `/version` example in the OpenAPI shows the slug `hr-assessment`, while the actual slug of the default name is longer; the example is documentation only.
-5. The exam binding cookie is `Secure` only when `APP_ENV=prod` (not `COOKIE_SECURE`) and is `SameSite=Lax`, while the refresh cookie follows `COOKIE_SECURE` and is `Strict`.
-6. `refresh_tokens` and `password_history` have no cleanup job; expired and revoked token rows accumulate.
+5. **Fixed.** The exam binding cookie follows `COOKIE_SECURE` (default true in prod) like the refresh cookie. It stays `SameSite=Lax` on purpose: the spec fixes no SameSite for it (only the refresh cookie is Strict) and Lax keeps it on same-site fetches and top-level navigations from the invite link. Swagger UI and `/openapi.json` are off in prod unless `ENABLE_DOCS=true`.
+6. **Fixed.** Job `auth_cleanup` (daily 04:30 UTC) deletes refresh tokens one day after expiry and trims `password_history` to each organization's policy depth (default 5).
 7. A single audit export cap error is `VALIDATION_ERROR` (`too_many_rows`) while the report cap is `REPORT_FILTER_INVALID`; the frontend must handle both.
 8. The M11 `failed` report status is never persisted (a failed generate rolls back); history shows only interpreted, confirmed and generated.
 9. Report history is organization-wide: all OAs of an organization see each other's requests.
